@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-serif), ui-serif, Georgia, serif;
+
+  --color-ink: #16130f;
+  --color-ink-2: #241f18;
+  --color-paper: #f6f3ec;
+  --color-card: #ffffff;
+  --color-line: #e7e1d4;
+  --color-muted: #6e6658;
+  --color-gold: #b8902f;
+  --color-gold-ink: #7d5f17;
+  --color-gold-soft: #f4ead0;
+  --color-gold-bright: #f2df57;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+  --color-ok: #1f7a4d;
+  --color-ok-soft: #e6f4ec;
+
+  --shadow-card: 0 1px 2px rgb(22 19 15 / 0.04), 0 6px 20px -12px rgb(22 19 15 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(22 19 15 / 0.05), 0 16px 32px -16px rgb(22 19 15 / 0.22);
+  --ease-out-soft: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  /* app, não documento: sem pull-to-refresh nem a página inteira "quicando" */
+  overscroll-behavior-y: none;
+}
+
+body {
+  background: radial-gradient(1100px 420px at 50% -220px, rgb(242 223 87 / 0.1), transparent 70%), var(--color-paper);
+  background-attachment: fixed;
+  color: var(--color-ink);
+}
+
+/* controles: toque sem atraso de 300ms e sem selecionar o rótulo no toque longo */
+button,
+a,
+select,
+[role="tab"],
+[role="switch"] {
+  touch-action: manipulation;
+}
+button,
+[role="tab"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Números de dinheiro/quantidade alinhados */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* modal aberto trava a rolagem da página de trás */
+html:has(dialog[open]) {
+  overflow: hidden;
+}
+
+dialog::backdrop {
+  background: rgb(22 19 15 / 0.5);
+  backdrop-filter: blur(3px);
+  animation: fade-in 200ms ease-out;
+}
+
+/* celular: sheet sobe de baixo; tela maior: diálogo central */
+dialog[open] {
+  animation: sheet-in 320ms var(--ease-out-soft);
+}
+@media (min-width: 40rem) {
+  dialog[open] {
+    animation: dialog-in 200ms var(--ease-out-soft);
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog[open],
+  dialog::backdrop {
+    animation: none;
+  }
+}
+
+/* sem spinners nos inputs numéricos (POS) */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}

@@ -33,6 +33,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+# só URL + chave publishable (públicas); a secreta fica no painel da Hostinger
+!.env.production
+
+# pacote montado para a Hostinger (scripts/empacotar-hostinger.mjs)
+/dist-hostinger/
 
 # vercel
 .vercel

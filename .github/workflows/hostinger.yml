@@ -1,0 +1,47 @@
+# A Hostinger tem glibc antiga e não roda o compilador do Next.js.
+# Aqui o app é testado e compilado; o servidor pronto vai para a branch `hostinger`,
+# que é a branch que a Hostinger implanta (ela só instala dependências e roda server.js).
+name: Deploy Hostinger
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hostinger
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Testes
+        run: |
+          node --test lib/pagamento.test.ts
+          node scripts/testar-sql.mjs
+
+      - run: npm run build
+
+      - run: node scripts/empacotar-hostinger.mjs
+
+      - name: Publicar na branch hostinger
+        working-directory: dist-hostinger
+        run: |
+          git init -q -b hostinger
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Build de ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" hostinger

@@ -39,3 +39,16 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 - **Estoque** = último inventário + entradas − amostras − vendas não anuladas desde então (`estoque_loja(loja)`).
 - **Gestão de usuários** em Server Actions com a secret key (`app/(app)/gestao/actions.ts`), com checagem hierárquica.
   Login por usuário → e-mail sintético `usuario@gamparfum.local` no Supabase Auth. Acesso desabilitado = usuário banido no Auth.
+
+## Deploy (Hostinger)
+
+O servidor da Hostinger tem glibc antiga e **não roda o compilador do Next.js** (`next build` falha com `GLIBC_2.29 not found`).
+Por isso o build é feito no GitHub Actions (`.github/workflows/hostinger.yml`): a cada push na `main` ele roda os testes,
+compila (`output: "standalone"`) e publica o servidor pronto na branch **`hostinger`**.
+
+Na Hostinger (app Node.js ligado ao GitHub):
+- **Branch:** `hostinger` · **Node:** 20 ou 22 · **Build:** `npm run build` (não faz nada) · **Entrada/start:** `server.js` / `npm start`
+- **Variável de ambiente:** `SUPABASE_SECRET_KEY` (a URL e a chave publishable vêm do `.env.production`, que é público)
+
+Testar o pacote localmente: `npm run build && node scripts/empacotar-hostinger.mjs`, depois em `dist-hostinger/`:
+`npm ci && node --env-file=../.env.local server.js`.

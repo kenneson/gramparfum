@@ -1,0 +1,2 @@
+Branch gerada automaticamente pelo GitHub Actions a partir da main. Não edite aqui.
+Hostinger: build = npm run build (não faz nada), arquivo de entrada = server.js, Node >= 20.

@@ -1,0 +1,128 @@
+{
+  "node": {
+    "00478a8097da9163e074cc2ade5280b9fff7ca7496": {
+      "workers": {
+        "app/(app)/caixa/page": {
+          "moduleId": 19550,
+          "async": false
+        },
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        },
+        "app/(app)/historico/page": {
+          "moduleId": 34422,
+          "async": false
+        },
+        "app/(app)/inventario/page": {
+          "moduleId": 48504,
+          "async": false
+        },
+        "app/(app)/relatorios/page": {
+          "moduleId": 66598,
+          "async": false
+        }
+      },
+      "filename": "app/actions.ts",
+      "exportedName": "logout"
+    },
+    "40cea0c779938d4b4bcfe0c85ce137f9971e88833e": {
+      "workers": {
+        "app/(app)/caixa/page": {
+          "moduleId": 19550,
+          "async": false
+        },
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        },
+        "app/(app)/historico/page": {
+          "moduleId": 34422,
+          "async": false
+        },
+        "app/(app)/inventario/page": {
+          "moduleId": 48504,
+          "async": false
+        },
+        "app/(app)/relatorios/page": {
+          "moduleId": 66598,
+          "async": false
+        }
+      },
+      "filename": "app/actions.ts",
+      "exportedName": "setIdioma"
+    },
+    "600416677f3b21511ef91b18c9a2236bec05257b19": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "filename": "app/(app)/gestao/actions.ts",
+      "exportedName": "atualizarAcesso"
+    },
+    "60de175c05eef1ef3b304d515b76d52a5d2acd58d3": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "filename": "app/(app)/gestao/actions.ts",
+      "exportedName": "atualizarDados"
+    },
+    "60921f8111ce34c92e3c6657914ad87d9ffc6fdba2": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "filename": "app/(app)/gestao/actions.ts",
+      "exportedName": "atualizarRole"
+    },
+    "40509ba6d6fb5642837b3729a3487af9ed1f74bb40": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "filename": "app/(app)/gestao/actions.ts",
+      "exportedName": "criarPessoa"
+    },
+    "607f2585703aa39284e616a9ab9308d6ff58f23c3e": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "filename": "app/(app)/gestao/actions.ts",
+      "exportedName": "definirAtivo"
+    },
+    "708d9b9a530dc4f1f75863d7fef4a2449642b89145": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "filename": "app/(app)/gestao/actions.ts",
+      "exportedName": "definirLoja"
+    },
+    "60dfe2393177730c583910fa0fe943028aea74c418": {
+      "workers": {
+        "app/login/page": {
+          "moduleId": 62541,
+          "async": false
+        }
+      },
+      "filename": "app/actions.ts",
+      "exportedName": "login"
+    }
+  },
+  "edge": {},
+  "encryptionKey": "59UiiYHYl8nbMHCe8/0zgjjtj+6uXRjLhIu6PRlQrOI="
+}

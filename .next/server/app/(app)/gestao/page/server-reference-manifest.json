@@ -1,0 +1,85 @@
+{
+  "node": {
+    "00478a8097da9163e074cc2ade5280b9fff7ca7496": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "exportedName": "logout",
+      "filename": "app/actions.ts"
+    },
+    "40cea0c779938d4b4bcfe0c85ce137f9971e88833e": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "exportedName": "setIdioma",
+      "filename": "app/actions.ts"
+    },
+    "600416677f3b21511ef91b18c9a2236bec05257b19": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "exportedName": "atualizarAcesso",
+      "filename": "app/(app)/gestao/actions.ts"
+    },
+    "60de175c05eef1ef3b304d515b76d52a5d2acd58d3": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "exportedName": "atualizarDados",
+      "filename": "app/(app)/gestao/actions.ts"
+    },
+    "60921f8111ce34c92e3c6657914ad87d9ffc6fdba2": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "exportedName": "atualizarRole",
+      "filename": "app/(app)/gestao/actions.ts"
+    },
+    "40509ba6d6fb5642837b3729a3487af9ed1f74bb40": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "exportedName": "criarPessoa",
+      "filename": "app/(app)/gestao/actions.ts"
+    },
+    "607f2585703aa39284e616a9ab9308d6ff58f23c3e": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "exportedName": "definirAtivo",
+      "filename": "app/(app)/gestao/actions.ts"
+    },
+    "708d9b9a530dc4f1f75863d7fef4a2449642b89145": {
+      "workers": {
+        "app/(app)/gestao/page": {
+          "moduleId": 40844,
+          "async": false
+        }
+      },
+      "exportedName": "definirLoja",
+      "filename": "app/(app)/gestao/actions.ts"
+    }
+  },
+  "edge": {}
+}

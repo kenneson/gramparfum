@@ -1,0 +1,39 @@
+{
+  "app": {
+    "[project]/app/(app)/caixa/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ],
+    "[project]/app/(app)/gestao/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ],
+    "[project]/app/(app)/historico/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ],
+    "[project]/app/(app)/inventario/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ],
+    "[project]/app/(app)/relatorios/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ],
+    "[project]/app/_not-found/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ],
+    "[project]/app/login/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ],
+    "[project]/app/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ]
+  },
+  "appUsingSizeAdjust": true,
+  "pages": {},
+  "pagesUsingSizeAdjust": false
+}

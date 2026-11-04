@@ -1,0 +1,11 @@
+{
+  "pages": {},
+  "app": {
+    "[project]/app/(app)/historico/page": [
+      "static/media/82450a180bcad83c-s.p.0p-wng2nn8o-p.woff2",
+      "static/media/6f3ab718e3727c1a-s.p.3huc2loe0ie8a.woff2"
+    ]
+  },
+  "appUsingSizeAdjust": true,
+  "pagesUsingSizeAdjust": false
+}

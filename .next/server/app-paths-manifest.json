@@ -1,0 +1,12 @@
+{
+  "/(app)/caixa/page": "app/(app)/caixa/page.js",
+  "/(app)/gestao/page": "app/(app)/gestao/page.js",
+  "/(app)/historico/page": "app/(app)/historico/page.js",
+  "/(app)/inventario/page": "app/(app)/inventario/page.js",
+  "/(app)/relatorios/page": "app/(app)/relatorios/page.js",
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/icon.png/route": "app/icon.png/route.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js"
+}

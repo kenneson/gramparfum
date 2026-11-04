@@ -1,0 +1,25 @@
+1:"$Sreact.fragment"
+2:"/_next/static/chunks/39lqc-kvp0fw8.js"
+3:I[39756,["$2"],"default"]
+4:I[37457,["$2"],"default"]
+5:I[46696,["$2"],"Toaster"]
+a:I[97367,["$2"],"OutletBoundary"]
+b:"$Sreact.suspense"
+e:"ViewportBoundary"
+f:I[97367,["$2"],"$e"]
+10:"MetadataBoundary"
+11:I[97367,["$2"],"$10"]
+12:I[27201,["$2"],"IconMark"]
+:HL["/_next/static/chunks/2i07tys_v2lw_.css","style"]
+7:X
+8:[["children",{"s":"__PAGE__","h":160,"d":{"r":["$","$1","c",{"children":["$L9",null,["$","$La",null,{"children":["$","$b",null,{"name":"Next.MetadataOutlet","children":"$@c"}]}]]}],"p":"$@d","v":null,"s":"$7"}}]]
+0:{"t":{"t":{"s":"","h":80,"d":{"r":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/_next/static/chunks/2i07tys_v2lw_.css","precedence":"next"}],["$","script","script-0",{"src":"/_next/static/chunks/39lqc-kvp0fw8.js","async":true}]],["$","html",null,{"lang":"pt-BR","className":"DINJIW_variable CAqVCW_variable h-full antialiased","children":["$","body",null,{"className":"min-h-full","children":[["$","$L3",null,{"parallelRouterKey":"children","template":["$","$L4",null,{}],"notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]]}],["$","$L5",null,{"position":"top-center","richColors":true,"closeButton":true,"mobileOffset":{"top":"calc(env(safe-area-inset-top) + 12px)"}}]]}]}]]}],"p":"$@6","v":null,"s":"$7"},"c":"$Q8"},"h":{"r":["$","$1","h",{"children":[null,["$","$Lf",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"}],["$","meta","2",{"name":"theme-color","content":"#f6f3ec"}]]}],["$","$L11",null,{"children":[["$","div",null,{"hidden":true,"children":["$","$b",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"GamParfum"}],["$","meta","1",{"name":"description","content":"Sistema de vendas GamParfum"}],["$","link","2",{"rel":"icon","href":"/icon.png?icon.2u8jf69vkhk6f.png","sizes":"180x181","type":"image/png"}],["$","$L12","3",{}]]}]}],null]}],["$","meta",null,{"name":"next-size-adjust","content":""}]]}],"p":"$@13","v":null,"s":"$7"}},"a":"$@14","u":"$@15","b":"18n7UXF-Oiz57XHK4AW2u"}
+9:E{"digest":"NEXT_REDIRECT;replace;/caixa;307;"}
+c:null
+7:300
+15:true
+7:C
+14:0
+6:"$undefined"
+13:"$undefined"
+d:"$undefined"

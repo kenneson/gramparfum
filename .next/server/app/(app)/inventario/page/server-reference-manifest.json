@@ -1,0 +1,25 @@
+{
+  "node": {
+    "00478a8097da9163e074cc2ade5280b9fff7ca7496": {
+      "workers": {
+        "app/(app)/inventario/page": {
+          "moduleId": 48504,
+          "async": false
+        }
+      },
+      "exportedName": "logout",
+      "filename": "app/actions.ts"
+    },
+    "40cea0c779938d4b4bcfe0c85ce137f9971e88833e": {
+      "workers": {
+        "app/(app)/inventario/page": {
+          "moduleId": 48504,
+          "async": false
+        }
+      },
+      "exportedName": "setIdioma",
+      "filename": "app/actions.ts"
+    }
+  },
+  "edge": {}
+}

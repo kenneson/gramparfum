@@ -42,13 +42,14 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 
 ## Deploy (Hostinger)
 
-O servidor da Hostinger tem glibc antiga e **não roda o compilador do Next.js** (`next build` falha com `GLIBC_2.29 not found`).
-Por isso o build é feito no GitHub Actions (`.github/workflows/hostinger.yml`): a cada push na `main` ele roda os testes,
-compila (`output: "standalone"`) e publica o servidor pronto na branch **`hostinger`**.
+A Hostinger implanta direto a `main` (preset Next.js, `npm run build` + `npm start`). O servidor dela tem glibc antiga:
+o SWC nativo do Next não carrega e ele cai no SWC em WASM. Por isso o projeto foi ajustado para compilar assim:
 
-Na Hostinger (app Node.js ligado ao GitHub):
-- **Branch:** `hostinger` · **Node:** 20 ou 22 · **Build:** `npm run build` (não faz nada) · **Entrada/start:** `server.js` / `npm start`
-- **Variável de ambiente:** `SUPABASE_SECRET_KEY` (a URL e a chave publishable vêm do `.env.production`, que é público)
+- `next build --webpack` (o Turbopack exige binário nativo; no `npm run dev` local ele continua sendo usado)
+- `next.config.mjs` em vez de `.ts` (o WASM não compila config em TypeScript)
+- Tailwind via `postcss.config.mjs` (`@tailwindcss/postcss`; o binário dele exige só glibc 2.14)
+- `images.unoptimized` (sem `sharp`, outro binário nativo)
 
-Testar o pacote localmente: `npm run build && node scripts/empacotar-hostinger.mjs`, depois em `dist-hostinger/`:
-`npm ci && node --env-file=../.env.local server.js`.
+Simular o build da Hostinger localmente: `NEXT_TEST_WASM=1 npm run build && NEXT_TEST_WASM=1 npm start`.
+
+Variáveis no painel: `SUPABASE_SECRET_KEY` (a URL e a chave publishable vêm do `.env.production`, que é público).

@@ -36,8 +36,6 @@ yarn-error.log*
 # só URL + chave publishable (públicas); a secreta fica no painel da Hostinger
 !.env.production
 
-# pacote montado para a Hostinger (scripts/empacotar-hostinger.mjs)
-/dist-hostinger/
 
 # vercel
 .vercel

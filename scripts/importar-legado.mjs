@@ -33,7 +33,8 @@ function lerValores(s, i) {
       let v = "";
       for (i++; s[i] !== "'" || s[i + 1] === "'"; i++) {
         if (s[i] === "\\") v += ESC[s[++i]] ?? s[i];
-        else if (s[i] === "'") v += s[++i]; // '' → '
+        else if (s[i] === "'")
+          v += s[++i]; // '' → '
         else v += s[i];
       }
       linha.push(v);
@@ -280,7 +281,14 @@ await inserir(
   "estoque_movimentos",
   movimentos
     .toSorted((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""))
-    .map((m, i) => ({ saldo_anterior: null, entradas: null, saidas: null, ...m, id: i + 1, created_at: quando(m.created_at) })),
+    .map((m, i) => ({
+      saldo_anterior: null,
+      entradas: null,
+      saidas: null,
+      ...m,
+      id: i + 1,
+      created_at: quando(m.created_at),
+    })),
 );
 
 // ───────── Histórico ─────────

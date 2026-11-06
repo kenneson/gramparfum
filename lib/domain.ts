@@ -75,6 +75,12 @@ export const dataHora = (iso: string | null) =>
 
 export const hojeISO = () => new Date().toLocaleDateString("sv-SE", { timeZone: TZ });
 
+// Dia inteiro (AAAA-MM-DD) no fuso de São Paulo, para filtrar timestamptz
+export const intervaloDia = (dia: string) => ({ de: `${dia}T00:00:00-03:00`, ate: `${dia}T23:59:59.999-03:00` });
+
+export const hora = (iso: string) =>
+  new Date(iso).toLocaleTimeString("pt-BR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+
 export function diasDesde(iso: string | null) {
   if (!iso) return null;
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);

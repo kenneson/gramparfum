@@ -1,23 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useData } from "@/lib/use-data";
-import { dataHora, diasDesde, num, type Estoque } from "@/lib/domain";
-import { Badge, Button, Card, Empty, Modal, PageHeader, Tabela, Tabs, cx } from "@/components/ui";
+import { dataHora, diasDesde, hojeISO, hora, num, type Estoque } from "@/lib/domain";
+import { amostrasDoDia, type Amostra } from "@/lib/amostras";
+import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Tabela, Tabs, cx } from "@/components/ui";
 import { SemLoja, useApp } from "@/components/shell";
 import { Exportar } from "@/components/exportar";
 
-type Aba = "contagem" | "movimentar" | "relatorios";
+type Aba = "contagem" | "entradas" | "amostras" | "relatorios";
 type Abertura = { produto_id: number; quantidade: number; created_at: string };
 type Linha = Estoque & { nome: string; aberturas: Abertura[] }; // aberturas: amostras, mais recente primeiro
 const supabase = createClient();
 
+// Admin (>= 100): inventário completo. Vendedor e chefe: só abrir e editar amostras (regra também no banco).
 export function Inventario() {
-  const { lojaId, t } = useApp();
-  const [aba, setAba] = useState<Aba>("contagem");
+  const { lojaId, t, profile } = useApp();
+  const admin = profile.role >= 100;
+  const [escolhida, setAba] = useState<Aba>("contagem");
+  const aba = admin ? escolhida : "amostras";
 
   const buscar = useCallback(async () => {
     if (!lojaId) return [];
@@ -47,24 +51,30 @@ export function Inventario() {
     <>
       <PageHeader
         title={t.inventario}
+        subtitle={admin ? undefined : "Abertura e correção de amostras"}
         actions={
-          <Tabs<Aba>
-            value={aba}
-            onChange={setAba}
-            items={[
-              { value: "contagem", label: "Fazer inventário" },
-              { value: "movimentar", label: "Movimentar" },
-              { value: "relatorios", label: "Relatórios" },
-            ]}
-          />
+          admin && (
+            <Tabs<Aba>
+              value={aba}
+              onChange={setAba}
+              items={[
+                { value: "contagem", label: "Fazer inventário" },
+                { value: "entradas", label: "Entradas" },
+                { value: "amostras", label: "Amostras" },
+                { value: "relatorios", label: "Relatórios" },
+              ]}
+            />
+          )
         }
       />
       {!data ? null : linhas.length === 0 ? (
         <Empty>Nenhum produto cadastrado nesta loja.</Empty>
       ) : aba === "contagem" ? (
         <Contagem linhas={linhas} onSaved={carregar} />
-      ) : aba === "movimentar" ? (
-        <Movimentar linhas={linhas} onSaved={carregar} />
+      ) : aba === "entradas" ? (
+        <Lancamento tipo="entrada" linhas={linhas} onSaved={carregar} />
+      ) : aba === "amostras" ? (
+        <AmostrasAba linhas={linhas} onSaved={carregar} />
       ) : (
         <Relatorios linhas={linhas} />
       )}
@@ -301,41 +311,53 @@ function Amostras({ linha }: { linha: Linha }) {
 
 const GRID_MOV = "md:grid-cols-[minmax(0,2fr)_4.5rem_6rem_minmax(0,2fr)_auto]";
 
-function Movimentar({ linhas, onSaved }: { linhas: Linha[]; onSaved: () => void }) {
-  const [tipo, setTipo] = useState<"entrada" | "amostra">("entrada");
+// Entrada (só admin) ou abertura de amostra (qualquer perfil); quem lança fica em created_by
+function Lancamento({ tipo, linhas, onSaved }: { tipo: "entrada" | "amostra"; linhas: Linha[]; onSaved: () => void }) {
+  const { profile } = useApp();
+  const mostrarEstoque = profile.role >= 100;
+  const [busca, setBusca] = useState("");
   const f = useLinhaForm(async (id, qtd, comentario) => {
     if (qtd === 0) return (toast.error("Quantidade precisa ser maior que zero"), false);
     const { error } = await supabase
       .from("estoque_movimentos")
       .insert({ produto_id: id, tipo, quantidade: qtd, comentario: comentario || null });
     if (error) return (toast.error(error.message), false);
-    toast.success(`${tipo === "entrada" ? "Entrada" : "Saída para amostra"} de ${qtd} registrada`);
+    const nome = linhas.find((l) => l.produto_id === id)?.nome;
+    toast.success(tipo === "entrada" ? `Entrada de ${qtd} registrada` : `Amostra aberta: ${nome}`, {
+      description: tipo === "amostra" ? `${qtd} unidade${qtd > 1 ? "s" : ""} saiu do estoque` : undefined,
+    });
     onSaved();
     return true;
   });
+  const q = busca.trim().toLowerCase();
+  const filtradas = q ? linhas.filter((l) => l.nome.toLowerCase().includes(q)) : linhas;
 
   return (
     <>
-      <div className="mb-4">
-        <Tabs
-          value={tipo}
-          onChange={setTipo}
-          items={[
-            { value: "entrada", label: "Entrada de produto" },
-            { value: "amostra", label: "Saída para amostra" },
-          ]}
+      <div className="relative mb-3">
+        <Search size={18} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
+        <Input
+          type="search"
+          enterKeyHint="search"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar perfume…"
+          className="pl-11"
         />
       </div>
       <Card className="overflow-hidden">
         <div className={cx("hidden items-center gap-3 border-b border-line px-4 py-3 md:grid", GRID_MOV)}>
           <span className={TH}>Produto</span>
-          <span className={cx(TH, "text-right")}>Estoque</span>
+          <span className={cx(TH, "text-right")}>{mostrarEstoque && "Estoque"}</span>
           <span className={TH}>Quantidade</span>
           <span className={TH}>Comentário</span>
           <span />
         </div>
         <ul className="divide-y divide-line">
-          {linhas.map((l) => {
+          {filtradas.length === 0 && (
+            <li className="px-4 py-8 text-center text-sm text-muted">Nenhum perfume encontrado.</li>
+          )}
+          {filtradas.map((l) => {
             const v = f.get(l.produto_id);
             return (
               <li
@@ -343,14 +365,19 @@ function Movimentar({ linhas, onSaved }: { linhas: Linha[]; onSaved: () => void 
                 className={cx(
                   "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3.5 text-sm md:py-2.5",
                   GRID_MOV,
+                  f.salvos.has(l.produto_id) && "bg-ok-soft/50",
                 )}
               >
                 <span className="min-w-0 font-semibold md:truncate" title={l.nome}>
                   {l.nome}
                 </span>
                 <span className="num text-right text-muted md:text-ink">
-                  <span className="text-xs md:hidden">estoque </span>
-                  {l.estoque}
+                  {mostrarEstoque && (
+                    <>
+                      <span className="text-xs md:hidden">estoque </span>
+                      {l.estoque}
+                    </>
+                  )}
                 </span>
                 <div className="col-span-2 grid grid-cols-[5.5rem_minmax(0,1fr)_auto] gap-2 md:contents">
                   <input
@@ -379,7 +406,7 @@ function Movimentar({ linhas, onSaved }: { linhas: Linha[]; onSaved: () => void 
                     disabled={!v.qtd}
                     onClick={() => f.salvar(l.produto_id)}
                   >
-                    Lançar
+                    {tipo === "entrada" ? "Lançar" : "Abrir"}
                   </Button>
                 </div>
               </li>
@@ -542,7 +569,7 @@ function DetalheMovimentos({ linha, onClose }: { linha: Linha; onClose: () => vo
     Promise.all([
       supabase
         .from("estoque_movimentos")
-        .select("created_at, quantidade, tipo, comentario, profiles(nome)")
+        .select("created_at, quantidade, tipo, comentario, profiles!estoque_movimentos_created_by_fkey(nome)")
         .eq("produto_id", linha.produto_id)
         .neq("tipo", "inventario")
         .gt("created_at", desde),
@@ -601,6 +628,204 @@ function DetalheMovimentos({ linha, onClose }: { linha: Linha; onClose: () => vo
           ))}
         </ul>
       )}
+    </Modal>
+  );
+}
+
+// Amostras do dia (quem abriu, quem editou) + lançamento. Vendedor edita as próprias; chefe+ qualquer uma.
+function AmostrasAba({ linhas, onSaved }: { linhas: Linha[]; onSaved: () => void }) {
+  const { lojaId, profile } = useApp();
+  const loja = useNomeLoja();
+  const [dia, setDia] = useState(hojeISO);
+  const [editando, setEditando] = useState<Amostra | null>(null);
+
+  const buscar = useCallback(async () => {
+    try {
+      return { dia, amostras: await amostrasDoDia(lojaId!, dia) };
+    } catch (e) {
+      toast.error("Erro ao carregar amostras", { description: (e as Error).message });
+      return { dia, amostras: [] };
+    }
+  }, [lojaId, dia]);
+  const [data, carregar] = useData(buscar);
+  const amostras = data?.dia === dia ? data.amostras : null;
+  const podeEditar = (a: Amostra) => profile.role >= 90 || a.created_by === profile.id;
+  const atualizar = () => {
+    carregar();
+    onSaved(); // estoque
+  };
+
+  return (
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <section className="order-2 xl:order-1">
+        <h2 className="mb-3 font-display text-2xl font-semibold">Abrir amostra</h2>
+        <Lancamento tipo="amostra" linhas={linhas} onSaved={atualizar} />
+      </section>
+
+      <section className="order-1 xl:sticky xl:top-22 xl:order-2">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <h2 className="font-display text-2xl font-semibold">Amostras abertas</h2>
+          <Field label="Dia" className="w-40">
+            <Input type="date" value={dia} max={hojeISO()} onChange={(e) => e.target.value && setDia(e.target.value)} />
+          </Field>
+        </div>
+        <Card>
+          {!amostras ? (
+            <p className="px-5 py-8 text-center text-sm text-muted">Carregando…</p>
+          ) : amostras.length === 0 ? (
+            <p className="px-5 py-8 text-center text-sm text-muted">Nenhuma amostra aberta neste dia.</p>
+          ) : (
+            <ul className="max-h-[60dvh] divide-y divide-line overflow-y-auto overscroll-contain">
+              {amostras.map((a) => (
+                <li key={a.id} className={cx("flex items-start gap-3 px-4 py-3", !a.quantidade && "opacity-55")}>
+                  <span className="num w-11 shrink-0 pt-0.5 text-xs font-semibold text-muted">
+                    {hora(a.created_at)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{a.produtos.nome}</div>
+                    <div className="text-xs text-muted">
+                      aberta por {a.abriu?.nome ?? "—"}
+                      {a.comentario && ` · ${a.comentario}`}
+                    </div>
+                    {a.editado_em && (
+                      <div className="text-[11px] text-gold-ink">
+                        editada por {a.editou?.nome ?? "—"} · {dataHora(a.editado_em)}
+                      </div>
+                    )}
+                  </div>
+                  {a.quantidade ? <Badge tone="gold">−{a.quantidade}</Badge> : <Badge tone="danger">cancelada</Badge>}
+                  {podeEditar(a) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="-my-1 size-9 px-0"
+                      aria-label={`Editar amostra de ${a.produtos.nome}`}
+                      onClick={() => setEditando(a)}
+                    >
+                      <Pencil size={15} />
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        {!!amostras?.length && (
+          <div className="mt-3 flex justify-end">
+            <Exportar
+              arquivo={`amostras-${dia}`}
+              titulo={`Amostras abertas — ${loja}`}
+              subtitulo={`Dia ${dia.split("-").reverse().join("/")}`}
+              paisagem
+              colunas={[
+                { titulo: "Aberta em", tipo: "data" },
+                { titulo: "Perfume", largura: 32 },
+                { titulo: "Qtd", tipo: "int" },
+                { titulo: "Aberta por", largura: 20 },
+                { titulo: "Comentário", largura: 28 },
+                { titulo: "Editada por", largura: 20 },
+                { titulo: "Editada em", tipo: "data" },
+              ]}
+              linhas={amostras.map((a) => [
+                a.created_at,
+                a.produtos.nome,
+                a.quantidade,
+                a.abriu?.nome ?? "",
+                a.comentario,
+                a.editou?.nome ?? "",
+                a.editado_em,
+              ])}
+            />
+          </div>
+        )}
+      </section>
+
+      {editando && (
+        <EditarAmostra
+          key={editando.id}
+          amostra={editando}
+          onClose={() => setEditando(null)}
+          onSaved={() => {
+            setEditando(null);
+            atualizar();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditarAmostra({ amostra, onClose, onSaved }: { amostra: Amostra; onClose: () => void; onSaved: () => void }) {
+  const [qtd, setQtd] = useState(String(amostra.quantidade));
+  const [comentario, setComentario] = useState(amostra.comentario ?? "");
+  const [salvando, setSalvando] = useState(false);
+  const n = Number(qtd);
+  const valido = qtd !== "" && Number.isInteger(n) && n >= 0;
+
+  async function salvar(quantidade = n) {
+    setSalvando(true);
+    const { error } = await supabase.rpc("editar_amostra", {
+      p_id: amostra.id,
+      p_quantidade: quantidade,
+      p_comentario: comentario,
+    });
+    setSalvando(false);
+    if (error) return toast.error("Amostra não alterada", { description: error.message });
+    toast.success(quantidade === 0 ? "Amostra cancelada — a unidade voltou ao estoque" : "Amostra atualizada");
+    onSaved();
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Editar amostra">
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valido) salvar();
+        }}
+      >
+        <div className="rounded-xl bg-paper px-4 py-3 text-sm">
+          <div className="font-semibold">{amostra.produtos.nome}</div>
+          <div className="text-xs text-muted">
+            Aberta por {amostra.abriu?.nome ?? "—"} em {dataHora(amostra.created_at)}
+          </div>
+        </div>
+        <div className="grid grid-cols-[6rem_1fr] gap-3">
+          <Field label="Quantidade">
+            <Input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={qtd}
+              onChange={(e) => setQtd(e.target.value)}
+              className="num"
+            />
+          </Field>
+          <Field label="Comentário">
+            <Input value={comentario} onChange={(e) => setComentario(e.target.value)} />
+          </Field>
+        </div>
+        <p className="text-xs text-muted">
+          A alteração fica registrada com o seu nome. Quantidade 0 cancela a amostra e devolve a unidade ao estoque.
+        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {amostra.quantidade > 0 ? (
+            <Button variant="danger" size="sm" disabled={salvando} onClick={() => salvar(0)}>
+              Cancelar amostra
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Voltar
+            </Button>
+            <Button type="submit" disabled={!valido || salvando}>
+              Salvar
+            </Button>
+          </div>
+        </div>
+      </form>
     </Modal>
   );
 }

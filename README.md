@@ -21,9 +21,9 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 
 | role | perfil | acesso |
 |---|---|---|
-| 50 | Vendedor | Caixa (só as próprias vendas), relatórios das próprias vendas |
-| 90 | Chefe de loja | + Gestão de equipe, Inventário, Histórico, editar/anular venda, trocar vendedor |
-| 100 | Admin. geral de lojas | + faturamento, cria/edita produtos, altera perfis, vê estoque no caixa |
+| 50 | Vendedor | Caixa (só as próprias vendas), relatórios e fechamento das próprias vendas, Inventário → abrir amostras e editar as que abriu |
+| 90 | Chefe de loja | + Gestão de equipe, Histórico, editar/anular venda, trocar vendedor, editar qualquer amostra da loja |
+| 100 | Admin. geral de lojas | + faturamento, inventário completo (contagem, entradas), cria/edita produtos, altera perfis, vê estoque |
 | 200 | Admin. do sistema | tudo, todas as lojas, cria lojas |
 
 **Faturamento só para Admin (>= 100).** Vendedor e chefe: relatório detalhado de um dia por vez; em vários dias
@@ -36,6 +36,8 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
   validam permissão, gravam `eventos`). Não há policy de escrita direta nas tabelas de venda.
 - **Valores de venda só por `relatorio_vendas`**: o cliente não tem SELECT nas colunas de valor (total, preço, pagamentos);
   a função corta o faturamento conforme o perfil. Leitura direta fica só com quantidades/datas (usada no inventário).
+- **Amostras**: qualquer perfil abre (cada uma baixa 1 unidade); edição só por `editar_amostra`, que grava quem editou
+  (`editado_por`) e um evento no Histórico. Inventário e entradas só para admin (policy `estoque_insert`).
 - **Estoque** = último inventário + entradas − amostras − vendas não anuladas desde então (`estoque_loja(loja)`).
 - **Gestão de usuários** em Server Actions com a secret key (`app/(app)/gestao/actions.ts`), com checagem hierárquica.
   Login por usuário → e-mail sintético `usuario@gamparfum.local` no Supabase Auth. Acesso desabilitado = usuário banido no Auth.

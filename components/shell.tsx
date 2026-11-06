@@ -48,7 +48,7 @@ export function Shell({
     { href: "/caixa", label: t.caixa, icon: ShoppingBag, min: 50 },
     { href: "/relatorios", label: t.relatorios, icon: BarChart3, min: 50 },
     { href: "/gestao", label: t.gestao, icon: Users, min: 90 },
-    { href: "/inventario", label: t.inventario, icon: Boxes, min: 90 },
+    { href: "/inventario", label: t.inventario, icon: Boxes, min: 50 },
     { href: "/historico", label: t.historico, icon: History, min: 90 },
   ].filter((n) => profile.role >= n.min);
 

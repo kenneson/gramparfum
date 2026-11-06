@@ -6,7 +6,8 @@ import Image from "next/image";
 import { Ban, LoaderCircle, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import { FORMAS, dataHora, hojeISO, money, num } from "@/lib/domain";
+import { FORMAS, dataHora, hojeISO, hora, money, num } from "@/lib/domain";
+import { amostrasDoDia, amostrasPorProduto } from "@/lib/amostras";
 import {
   Badge,
   Button,
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui";
 import { SemLoja, useApp } from "@/components/shell";
 import { Pagamento } from "../caixa/pagamento";
+import { Exportar } from "@/components/exportar";
 
 // Vem de relatorio_vendas. Perfil < 100 em vários dias: total, troco e preco vêm null e só pagamentos em dinheiro.
 type Venda = {
@@ -45,7 +47,7 @@ type Venda = {
   venda_pagamentos: { forma: number; valor: number; comentario: string | null }[];
 };
 
-type Aba = "detalhado" | "combos" | "produtos";
+type Aba = "detalhado" | "combos" | "produtos" | "fechamento";
 const supabase = createClient();
 const nVenda = (id: number) => String(id).padStart(6, "0");
 const combos = (v: Venda) => v.venda_itens.reduce((s, i) => s + Number(i.valor_combo) * i.quantidade, 0);
@@ -59,7 +61,7 @@ export function Relatorios() {
   const [editando, setEditando] = useState<Venda | null>(null);
   // Faturamento só para a Administração; vendedor/chefe veem o detalhado de um dia por vez (regra também no banco)
   const restrito = profile.role < 100;
-  const umDia = restrito && aba === "detalhado";
+  const umDia = aba === "fechamento" || (restrito && aba === "detalhado");
   const ate = umDia ? d1 : d2;
 
   const chave = `${d1}|${ate}`;
@@ -87,6 +89,7 @@ export function Relatorios() {
               { value: "detalhado", label: "Detalhado" },
               { value: "combos", label: "Combos" },
               { value: "produtos", label: "Produtos" },
+              { value: "fechamento", label: "Fechamento do dia" },
             ]}
           />
         }
@@ -116,6 +119,8 @@ export function Relatorios() {
         </div>
       ) : aba === "detalhado" ? (
         <Detalhado vendas={vendas} onAbrir={setAberta} />
+      ) : aba === "fechamento" ? (
+        <Fechamento key={d1} vendas={vendas} dia={d1} />
       ) : aba === "combos" ? (
         <Combos vendas={vendas.filter((v) => !v.anulada)} restrito={restrito} />
       ) : (
@@ -634,5 +639,168 @@ function EditarVenda({ venda, onClose, onSaved }: { venda: Venda; onClose: () =>
         </div>
       )}
     </Modal>
+  );
+}
+
+// Fechamento do dia: vendas e amostras separadas, para conferir caixa e estoque.
+// Um dia só: vendedor/chefe também veem os valores do dia (relatorio_vendas libera um dia por vez).
+function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
+  const { lojaId, lojas, idioma, profile } = useApp();
+  const loja = lojas.find((l) => l.id === lojaId)?.nome ?? "";
+  const dataBR = dia.split("-").reverse().join("/");
+
+  const buscar = useCallback(async () => {
+    try {
+      return await amostrasDoDia(lojaId!, dia);
+    } catch (e) {
+      toast.error("Erro ao carregar amostras", { description: (e as Error).message });
+      return [];
+    }
+  }, [lojaId, dia]);
+  const [amostras] = useData(buscar);
+
+  const validas = vendas.filter((v) => !v.anulada);
+  const anuladas = vendas.length - validas.length;
+  const porProduto = [
+    ...validas
+      .flatMap((v) => v.venda_itens)
+      .reduce((m, i) => {
+        const r = m.get(i.produto_id) ?? { nome: i.produtos.nome, qtd: 0, valor: 0 };
+        r.qtd += i.quantidade;
+        r.valor += Number(i.preco) * i.quantidade;
+        return m.set(i.produto_id, r);
+      }, new Map<number, { nome: string; qtd: number; valor: number }>())
+      .values(),
+  ].sort((a, b) => b.qtd - a.qtd || a.nome.localeCompare(b.nome));
+  const itens = porProduto.reduce((s, r) => s + r.qtd, 0);
+  const total = validas.reduce((s, v) => s + Number(v.total), 0);
+  const porForma = (f: number) =>
+    validas.reduce(
+      (s, v) => s + v.venda_pagamentos.filter((p) => p.forma === f).reduce((a, p) => a + Number(p.valor), 0),
+      0,
+    );
+
+  const amostrasProd = amostrasPorProduto(amostras ?? []);
+  const abertas = amostrasProd.reduce((s, r) => s + r.qtd, 0);
+  const canceladas = (amostras ?? []).filter((a) => !a.quantidade).length;
+
+  return (
+    <div className="grid items-start gap-6 xl:grid-cols-2">
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-2xl font-semibold">{profile.role === 50 ? "Suas vendas" : "Vendas"}</h2>
+          <Exportar
+            arquivo={`fechamento-vendas-${dia}`}
+            titulo={`Fechamento de vendas — ${loja}`}
+            subtitulo={`Dia ${dataBR} · ${validas.length} vendas · ${itens} itens · total ${money(total, idioma)}`}
+            colunas={[
+              { titulo: "Produto", largura: 34 },
+              { titulo: "Qtd vendida", tipo: "int" },
+              { titulo: "Valor", largura: 14 },
+            ]}
+            linhas={[
+              ...porProduto.map((r) => [r.nome, r.qtd, money(r.valor, idioma)]),
+              ["TOTAL", itens, money(total, idioma)],
+            ]}
+          />
+        </div>
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <Stat
+            label="Vendas"
+            value={String(validas.length)}
+            hint={anuladas ? `${anuladas} anulada(s) fora da conta` : undefined}
+          />
+          <Stat label="Itens vendidos" value={num(itens)} />
+          <Stat label="Total vendido" value={money(total, idioma)} />
+          <Stat label="Dinheiro em caixa" value={money(porForma(2), idioma)} />
+        </div>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {[1, 3, 4, 5].map((f) => (
+            <Badge key={f}>
+              {FORMAS[f]}: {money(porForma(f), idioma)}
+            </Badge>
+          ))}
+        </div>
+        {porProduto.length === 0 ? (
+          <Empty>Nenhuma venda neste dia.</Empty>
+        ) : (
+          <Tabela
+            head={["Produto", "Qtd", "Valor"]}
+            rows={porProduto.map((r) => [r.nome, num(r.qtd), money(r.valor, idioma)])}
+            foot={["Total", num(itens), money(total, idioma)]}
+          />
+        )}
+      </section>
+
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-2xl font-semibold">Amostras abertas</h2>
+          <Exportar
+            arquivo={`fechamento-amostras-${dia}`}
+            titulo={`Fechamento de amostras — ${loja}`}
+            subtitulo={`Dia ${dataBR} · ${abertas} amostra(s) abertas`}
+            paisagem
+            colunas={[
+              { titulo: "Aberta em", tipo: "data" },
+              { titulo: "Perfume", largura: 32 },
+              { titulo: "Qtd", tipo: "int" },
+              { titulo: "Aberta por", largura: 20 },
+              { titulo: "Comentário", largura: 26 },
+              { titulo: "Editada por", largura: 20 },
+            ]}
+            linhas={(amostras ?? []).map((a) => [
+              a.created_at,
+              a.produtos.nome,
+              a.quantidade,
+              a.abriu?.nome ?? "",
+              a.comentario,
+              a.editou?.nome ?? "",
+            ])}
+          />
+        </div>
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <Stat label="Amostras abertas" value={num(abertas)} hint="cada uma baixou 1 unidade" />
+          <Stat
+            label="Perfumes"
+            value={num(amostrasProd.length)}
+            hint={canceladas ? `${canceladas} cancelada(s)` : undefined}
+          />
+        </div>
+        {!amostras ? (
+          <div className="grid place-items-center py-10 text-muted">
+            <LoaderCircle className="animate-spin" />
+          </div>
+        ) : amostras.length === 0 ? (
+          <Empty>Nenhuma amostra aberta neste dia.</Empty>
+        ) : (
+          <>
+            <Tabela
+              head={["Perfume", "Qtd"]}
+              rows={amostrasProd.map((r) => [r.nome, num(r.qtd)])}
+              foot={["Total", num(abertas)]}
+            />
+            <h3 className="mt-5 mb-2 text-xs font-bold tracking-wide text-muted uppercase">Quem abriu</h3>
+            <Card className="divide-y divide-line">
+              {amostras.map((a) => (
+                <div
+                  key={a.id}
+                  className={cx("flex items-start gap-3 px-4 py-2.5 text-sm", !a.quantidade && "opacity-55")}
+                >
+                  <span className="num w-11 shrink-0 text-xs font-semibold text-muted">{hora(a.created_at)}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold">{a.produtos.nome}</div>
+                    <div className="text-xs text-muted">
+                      {a.abriu?.nome ?? "—"}
+                      {a.editado_em && ` · editada por ${a.editou?.nome ?? "—"}`}
+                    </div>
+                  </div>
+                  {a.quantidade ? <Badge tone="gold">−{a.quantidade}</Badge> : <Badge tone="danger">cancelada</Badge>}
+                </div>
+              ))}
+            </Card>
+          </>
+        )}
+      </section>
+    </div>
   );
 }

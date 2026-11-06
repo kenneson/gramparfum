@@ -16,6 +16,7 @@ const TIPOS: Record<string, { label: string; tone: "danger" | "neutral" | "gold"
   anulacao: { label: "Anulação", tone: "danger" },
   edicao: { label: "Edição", tone: "neutral" },
   troca_vendedor: { label: "Troca de vendedor", tone: "gold" },
+  edicao_amostra: { label: "Edição de amostra", tone: "gold" },
 };
 
 const nomeDe = (p: unknown) => (p as { nome: string } | null)?.nome ?? "—";
@@ -38,7 +39,7 @@ export default async function HistoricoPage() {
 
   return (
     <>
-      <PageHeader title="Histórico" subtitle="Últimos acessos ao sistema e alterações em vendas" />
+      <PageHeader title="Histórico" subtitle="Últimos acessos ao sistema e alterações em vendas e amostras" />
       <div className="grid items-start gap-6 xl:grid-cols-[1.4fr_1fr]">
         <section>
           <Titulo
@@ -92,8 +93,8 @@ export default async function HistoricoPage() {
             exportar={
               <Exportar
                 arquivo="eventos-vendas"
-                titulo="Eventos de vendas"
-                subtitulo="Anulações, edições e trocas de vendedor"
+                titulo="Eventos de vendas e amostras"
+                subtitulo="Anulações, edições de venda e de amostra, trocas de vendedor"
                 paisagem
                 colunas={[
                   { titulo: "Data", tipo: "data" },
@@ -110,7 +111,7 @@ export default async function HistoricoPage() {
               />
             }
           >
-            Eventos de vendas
+            Eventos de vendas e amostras
           </Titulo>
           <Card className="divide-y divide-line">
             {(eventos ?? []).map((e) => (

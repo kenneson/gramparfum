@@ -29,7 +29,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
 
       <section className="relative -mt-6 flex items-start justify-center rounded-t-[1.75rem] bg-paper px-6 pt-10 pb-[calc(3rem+env(safe-area-inset-bottom))] lg:mt-0 lg:items-center lg:rounded-none lg:py-12">
         <div className="w-full max-w-sm">
-          <h1 className="font-display text-4xl font-semibold">Entrar</h1>
+          <h1 className="font-display text-4xl font-bold">Entrar</h1>
           <p className="mt-2 text-sm text-muted">Acesse com o usuário fornecido pelo administrador.</p>
           {erro === "inativo" && (
             <p className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">Usuário inativo.</p>

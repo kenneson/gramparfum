@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 // cover + env(safe-area-inset-*): conteúdo desvia do notch e do indicador de início
 export const viewport: Viewport = {
-  themeColor: "#f6f3ec",
+  themeColor: "#f5f4f0",
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
 };

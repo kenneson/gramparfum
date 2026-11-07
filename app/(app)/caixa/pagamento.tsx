@@ -90,7 +90,7 @@ export function Pagamento({
           <div className="text-xs tracking-wide text-white/60 uppercase">
             {t.total}
           </div>
-          <div className="num font-display text-4xl font-semibold text-gold-bright">
+          <div className="num font-display text-4xl font-bold text-gold-bright">
             {money(total, idioma)}
           </div>
         </div>
@@ -172,14 +172,14 @@ export function Pagamento({
           {comAtual.troco > 0 ? (
             <>
               <span className="text-sm font-semibold text-ok">{t.troco}</span>
-              <span className="num font-display text-2xl font-semibold text-ok">
+              <span className="num font-display text-2xl font-bold text-ok">
                 {money(comAtual.troco, idioma)}
               </span>
             </>
           ) : (
             <>
               <span className="text-sm text-muted">{t.falta}</span>
-              <span className="num font-display text-2xl font-semibold">
+              <span className="num font-display text-2xl font-bold">
                 {money(comAtual.restante, idioma)}
               </span>
             </>

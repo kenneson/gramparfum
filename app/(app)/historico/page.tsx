@@ -135,7 +135,7 @@ export default async function HistoricoPage() {
 function Titulo({ children, exportar }: { children: ReactNode; exportar: ReactNode }) {
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-      <h2 className="font-display text-2xl font-semibold">{children}</h2>
+      <h2 className="font-display text-2xl font-bold">{children}</h2>
       {exportar}
     </div>
   );

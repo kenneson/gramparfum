@@ -657,7 +657,7 @@ function DetalheProduto({
               </div>
               <div
                 className={cx(
-                  "num font-display text-4xl font-semibold",
+                  "num font-display text-4xl font-bold",
                   linha.estoque <= 0 && "text-danger",
                 )}
               >
@@ -976,7 +976,7 @@ function LancamentoForm({
         <div className="flex min-w-0 items-center gap-3">
           <IconeTipo tipo={tipo} />
           <div className="min-w-0">
-            <h2 className="truncate font-display text-xl font-semibold">
+            <h2 className="truncate font-display text-xl font-bold">
               {T.nome}
             </h2>
             <StatusRascunho
@@ -1105,7 +1105,9 @@ function LancamentoForm({
         </Card>
       </section>
 
-      <Card className="hidden lg:sticky lg:top-22 lg:block">{resumo}</Card>
+      <Card className="hidden lg:sticky lg:top-22 xl:top-8 lg:block">
+        {resumo}
+      </Card>
 
       <BarraCelular
         visivel={itens.length > 0}
@@ -1143,10 +1145,10 @@ function BarraCelular({
   return (
     <>
       <div aria-hidden className="h-20 lg:hidden" />
-      <div className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 flex items-center gap-2 rounded-2xl bg-ink p-2 pl-4 text-white shadow-lift ring-1 ring-white/10 lg:hidden">
+      <div className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-[calc(1rem+env(safe-area-inset-bottom))] md:left-[6.25rem] z-20 flex items-center gap-2 rounded-2xl bg-ink p-2 pl-4 text-white shadow-lift ring-1 ring-white/10 lg:hidden">
         <span className="min-w-0 flex-1">
           <span className="block text-[11px] text-white/60">{titulo}</span>
-          <span className="num block truncate font-display text-xl leading-tight font-semibold">
+          <span className="num block truncate font-display text-xl leading-tight font-bold">
             {valor}
           </span>
         </span>
@@ -1370,10 +1372,10 @@ function ContagemForm({
           })}
         </Card>
 
-        <Card className="flex flex-col gap-3 p-5 lg:sticky lg:top-22">
+        <Card className="flex flex-col gap-3 p-5 lg:sticky lg:top-22 xl:top-8">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="num font-display text-3xl font-semibold">
+              <div className="num font-display text-3xl font-bold">
                 {itens.length}
                 <span className="text-lg text-muted"> / {linhas.length}</span>
               </div>

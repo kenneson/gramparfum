@@ -258,7 +258,7 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
                   </span>
                   <span className="num hidden text-right text-sm text-gold-ink sm:block">{num(combos(v), 2)}</span>
                   <span
-                    className={cx("num text-right font-display text-xl font-semibold", v.anulada && "line-through")}
+                    className={cx("num text-right font-display text-xl font-bold", v.anulada && "line-through")}
                   >
                     {money(v.total, idioma)}
                     {v.anulada && (
@@ -423,7 +423,7 @@ function Ticket({
                 </li>
               ))}
             </ul>
-            <div className="mt-3 flex justify-between border-t border-dashed border-line pt-3 font-display text-xl font-semibold">
+            <div className="mt-3 flex justify-between border-t border-dashed border-line pt-3 font-display text-xl font-bold">
               <span>Total</span>
               <span className="num">{money(venda.total, idioma)}</span>
             </div>
@@ -626,7 +626,7 @@ function EditarVenda({ venda, onClose, onSaved }: { venda: Venda; onClose: () =>
           </Select>
           <div className="flex items-baseline justify-between border-t border-line pt-4">
             <span className="text-sm text-muted">Total anterior {money(venda.total, idioma)}</span>
-            <span className="num font-display text-3xl font-semibold">{money(total, idioma)}</span>
+            <span className="num font-display text-3xl font-bold">{money(total, idioma)}</span>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose}>
@@ -688,7 +688,7 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
     <div className="grid items-start gap-6 xl:grid-cols-2">
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-2xl font-semibold">{profile.role === 50 ? "Suas vendas" : "Vendas"}</h2>
+          <h2 className="font-display text-2xl font-bold">{profile.role === 50 ? "Suas vendas" : "Vendas"}</h2>
           <Exportar
             arquivo={`fechamento-vendas-${dia}`}
             titulo={`Fechamento de vendas — ${loja}`}
@@ -734,7 +734,7 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-2xl font-semibold">Amostras abertas</h2>
+          <h2 className="font-display text-2xl font-bold">Amostras abertas</h2>
           <Exportar
             arquivo={`fechamento-amostras-${dia}`}
             titulo={`Fechamento de amostras — ${loja}`}

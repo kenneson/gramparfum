@@ -4,7 +4,8 @@ import { useEffect, useRef, type ComponentProps, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { iniciais } from "@/lib/domain";
 
-export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
+export const cx = (...c: (string | false | null | undefined)[]) =>
+  c.filter(Boolean).join(" ");
 
 const BTN = {
   primary: "bg-ink text-white hover:bg-ink-2 shadow-sm",
@@ -19,7 +20,10 @@ export function Button({
   size = "md",
   className,
   ...props
-}: ComponentProps<"button"> & { variant?: keyof typeof BTN; size?: "sm" | "md" | "lg" }) {
+}: ComponentProps<"button"> & {
+  variant?: keyof typeof BTN;
+  size?: "sm" | "md" | "lg";
+}) {
   return (
     <button
       type="button"
@@ -50,17 +54,33 @@ export const Select = ({ className, ...p }: ComponentProps<"select">) => (
   <select className={cx(FIELD, "h-11 cursor-pointer pr-8", className)} {...p} />
 );
 
-export function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+export function Field({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <label className={cx("flex flex-col gap-1.5", className)}>
-      <span className="text-xs font-semibold tracking-wide text-muted uppercase">{label}</span>
+      <span className="text-xs font-semibold tracking-wide text-muted uppercase">
+        {label}
+      </span>
       {children}
     </label>
   );
 }
 
 export const Card = ({ className, ...p }: ComponentProps<"div">) => (
-  <div className={cx("rounded-2xl border border-line/80 bg-card shadow-card", className)} {...p} />
+  <div
+    className={cx(
+      "rounded-2xl border border-line/80 bg-card shadow-card",
+      className,
+    )}
+    {...p}
+  />
 );
 
 export function Badge({
@@ -85,13 +105,27 @@ export function Badge({
   );
 }
 
-export function Avatar({ nome, active, size = 40 }: { nome: string; active?: boolean; size?: number }) {
+export function Avatar({
+  nome,
+  active,
+  dark,
+  size = 40,
+}: {
+  nome: string;
+  active?: boolean;
+  dark?: boolean;
+  size?: number;
+}) {
   return (
     <span
       style={{ width: size, height: size, fontSize: size * 0.36 }}
       className={cx(
         "grid shrink-0 place-items-center rounded-full font-bold transition",
-        active ? "bg-gold text-white" : "bg-gold-soft text-gold-ink",
+        active
+          ? "bg-gold text-white"
+          : dark
+            ? "bg-side-active text-gold-bright"
+            : "bg-gold-soft text-gold-ink",
       )}
     >
       {iniciais(nome)}
@@ -113,7 +147,10 @@ export function Toggle({
   return (
     // relative: o input sr-only (absolute) fica preso ao label; sem isso o foco rola o <dialog> e o layout quebra
     <label
-      className={cx("relative inline-flex cursor-pointer items-center gap-3", disabled && "cursor-not-allowed opacity-50")}
+      className={cx(
+        "relative inline-flex cursor-pointer items-center gap-3",
+        disabled && "cursor-not-allowed opacity-50",
+      )}
     >
       <input
         type="checkbox"
@@ -152,7 +189,9 @@ export function Tabs<T extends string>({
           onClick={() => onChange(it.value)}
           className={cx(
             "h-9 flex-1 shrink-0 rounded-xl px-3.5 text-sm font-semibold whitespace-nowrap transition active:scale-[0.97] sm:flex-none sm:px-4",
-            value === it.value ? "bg-ink text-white shadow-sm" : "text-muted hover:bg-ink/5 hover:text-ink",
+            value === it.value
+              ? "bg-ink text-white shadow-sm"
+              : "text-muted hover:bg-ink/5 hover:text-ink",
           )}
         >
           {it.label}
@@ -198,7 +237,9 @@ export function Modal({
       {open && (
         <div className="flex max-h-[92dvh] flex-col">
           <header className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-5 py-3.5 sm:px-6 sm:py-4">
-            <h2 className="min-w-0 truncate font-display text-2xl font-semibold">{title}</h2>
+            <h2 className="min-w-0 truncate font-display text-2xl font-bold">
+              {title}
+            </h2>
             <button
               type="button"
               onClick={onClose}
@@ -217,11 +258,21 @@ export function Modal({
   );
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+}) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-3 sm:mb-6">
       <div>
-        <h1 className="font-display text-[2.125rem] leading-none font-semibold tracking-tight sm:text-4xl">{title}</h1>
+        <h1 className="font-display text-[1.75rem] leading-tight font-bold sm:text-[1.875rem]">
+          {title}
+        </h1>
         {subtitle && <p className="mt-2 text-sm text-muted">{subtitle}</p>}
       </div>
       {actions}
@@ -235,17 +286,37 @@ export const Empty = ({ children }: { children: ReactNode }) => (
   </div>
 );
 
-export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+export function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
   return (
     <Card className="min-w-0 p-3.5 sm:p-4">
-      <div className="truncate text-[11px] font-semibold tracking-wide text-muted uppercase sm:text-xs">{label}</div>
-      <div className="num mt-1 font-display text-2xl leading-tight font-semibold break-words sm:text-3xl">{value}</div>
+      <div className="truncate text-[11px] font-semibold tracking-wide text-muted uppercase sm:text-xs">
+        {label}
+      </div>
+      <div className="num mt-1 font-display text-2xl leading-tight font-bold break-words sm:text-3xl">
+        {value}
+      </div>
       {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}
     </Card>
   );
 }
 
-export function Tabela({ head, rows, foot }: { head: string[]; rows: ReactNode[][]; foot?: ReactNode[] }) {
+export function Tabela({
+  head,
+  rows,
+  foot,
+}: {
+  head: string[];
+  rows: ReactNode[][];
+  foot?: ReactNode[];
+}) {
   return (
     <Card className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -270,7 +341,12 @@ export function Tabela({ head, rows, foot }: { head: string[]; rows: ReactNode[]
               {r.map((c, j) => (
                 <td
                   key={j}
-                  className={cx("px-4 py-3 sm:px-5", j === 0 ? "font-semibold" : "num text-right whitespace-nowrap")}
+                  className={cx(
+                    "px-4 py-3 sm:px-5",
+                    j === 0
+                      ? "font-semibold"
+                      : "num text-right whitespace-nowrap",
+                  )}
                 >
                   {c}
                 </td>
@@ -282,7 +358,13 @@ export function Tabela({ head, rows, foot }: { head: string[]; rows: ReactNode[]
           <tfoot>
             <tr className="border-t-2 border-ink/10 bg-paper font-bold">
               {foot.map((c, j) => (
-                <td key={j} className={cx("px-4 py-3 sm:px-5", j > 0 && "num text-right whitespace-nowrap")}>
+                <td
+                  key={j}
+                  className={cx(
+                    "px-4 py-3 sm:px-5",
+                    j > 0 && "num text-right whitespace-nowrap",
+                  )}
+                >
                   {c}
                 </td>
               ))}

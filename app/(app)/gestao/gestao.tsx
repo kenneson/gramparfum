@@ -518,7 +518,7 @@ function Produtos() {
                 )}
               </div>
               <div className="text-right">
-                <div className="num font-display text-xl font-semibold">
+                <div className="num font-display text-xl font-bold">
                   {money(p.preco, idioma)}
                 </div>
                 <div className="num text-xs text-gold-ink">

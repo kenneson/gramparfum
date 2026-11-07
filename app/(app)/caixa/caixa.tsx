@@ -100,7 +100,7 @@ export function Caixa() {
             type="button"
             onClick={() => setEscolhido(v.id)}
             className={cx(
-              "flex shrink-0 items-center gap-2.5 rounded-2xl border py-1.5 pr-4 pl-1.5 text-sm font-semibold transition",
+              "flex shrink-0 items-center gap-2.5 rounded-full border py-1.5 pr-4 pl-1.5 text-sm font-semibold transition",
               v.id === vendedorId
                 ? "border-ink bg-ink text-white shadow-md"
                 : "border-line bg-card hover:border-ink/30",
@@ -402,7 +402,7 @@ function Venda({
     <div className="border-t border-line px-5 py-4">
       <div className="flex items-baseline justify-between">
         <span className="text-sm text-muted">{t.total}</span>
-        <span className="num font-display text-4xl font-semibold">
+        <span className="num font-display text-4xl font-bold">
           {money(total, idioma)}
         </span>
       </div>
@@ -516,7 +516,7 @@ function Venda({
                       </div>
                     )}
                     <div className="mt-auto flex flex-wrap items-end justify-between gap-x-2 gap-y-1 pt-3">
-                      <span className="num font-display text-[1.375rem] leading-none font-semibold sm:text-2xl">
+                      <span className="num font-display text-[1.375rem] leading-none font-bold sm:text-2xl">
                         {money(p.preco, idioma)}
                       </span>
                       <span className="flex flex-wrap gap-1">
@@ -542,9 +542,9 @@ function Venda({
         </section>
 
         {/* Carrinho (desktop) */}
-        <Card className="hidden lg:sticky lg:top-22 lg:block">
+        <Card className="hidden lg:sticky lg:top-22 xl:top-8 lg:block">
           <div className="flex items-center justify-between border-b border-line px-5 py-4">
-            <h2 className="font-display text-2xl font-semibold">
+            <h2 className="font-display text-2xl font-bold">
               {pedidoSel?.nome ?? t.detalheVenda}
             </h2>
             {qtd > 0 && <Badge tone="gold">{qtd} itens</Badge>}
@@ -558,7 +558,7 @@ function Venda({
       {itens.length > 0 && (
         <>
           <div aria-hidden className="h-20 lg:hidden" />
-          <div className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 flex items-center gap-2 rounded-2xl bg-ink p-2 text-white shadow-lift ring-1 ring-white/10 lg:hidden">
+          <div className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-[calc(1rem+env(safe-area-inset-bottom))] md:left-[6.25rem] z-20 flex items-center gap-2 rounded-2xl bg-ink p-2 text-white shadow-lift ring-1 ring-white/10 lg:hidden">
             <button
               type="button"
               onClick={() => setVerCarrinho(true)}
@@ -574,7 +574,7 @@ function Venda({
                 <span className="block text-[11px] text-white/60">
                   Ver pedido
                 </span>
-                <span className="num block truncate font-display text-xl leading-tight font-semibold">
+                <span className="num block truncate font-display text-xl leading-tight font-bold">
                   {money(total, idioma)}
                 </span>
               </span>

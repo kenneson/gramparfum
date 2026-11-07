@@ -22,7 +22,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           priority
           className="relative w-28 sm:w-40 lg:w-64"
         />
-        <p className="relative mt-6 max-w-sm font-display text-xl text-white/80 italic sm:mt-8 sm:text-2xl lg:text-3xl">
+        <p className="relative mt-6 max-w-sm font-display text-xl text-white/80 sm:mt-8 sm:text-2xl lg:text-3xl">
           O mundo das fragrâncias, na palma do caixa.
         </p>
       </section>

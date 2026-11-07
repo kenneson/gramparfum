@@ -219,6 +219,17 @@ function Venda({
     recarregarPedidos();
   }
 
+  // Só apaga cliente salvo vazio: os produtos têm de ser removidos antes (o FK apagaria em cascata)
+  async function apagarPedido() {
+    if (!pedidoSel || itensData?.pedido !== pedidoSel.id) return; // itens ainda carregando
+    if (itens.length > 0) return toast.warning("Remova os produtos antes de apagar o cliente salvo");
+    const { error } = await supabase.from("pedidos").delete().eq("id", pedidoSel.id);
+    if (error) return toast.error("Erro ao apagar cliente salvo", { description: error.message });
+    toast.success(`“${pedidoSel.nome}” apagado`);
+    setEscolhido(null);
+    recarregarPedidos();
+  }
+
   function vendaFinalizada(vendaId: number) {
     setCobrando(false);
     toast.success(`Venda nº ${String(vendaId).padStart(6, "0")} registrada`);
@@ -331,6 +342,21 @@ function Venda({
               <Bookmark size={13} /> {p.nome}
             </Chip>
           ))}
+          {pedidoSel && (
+            <button
+              type="button"
+              onClick={apagarPedido}
+              title={itens.length > 0 ? "Remova os produtos antes de apagar" : `Apagar “${pedidoSel.nome}”`}
+              className={cx(
+                "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold transition",
+                itens.length > 0
+                  ? "text-muted/60"
+                  : "text-danger hover:bg-danger-soft active:bg-danger-soft",
+              )}
+            >
+              <Trash2 size={14} /> Apagar
+            </button>
+          )}
         </div>
       )}
 

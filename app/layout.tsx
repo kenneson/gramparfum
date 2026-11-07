@@ -1,14 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Manrope } from "next/font/google";
+import { Geist } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
 
-const ui = Manrope({ variable: "--font-ui", subsets: ["latin"] });
-const serif = Cormorant_Garamond({
-  variable: "--font-serif",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-});
+const ui = Geist({ variable: "--font-ui", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "GamParfum",
@@ -24,7 +19,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="pt-BR" className={`${ui.variable} ${serif.variable} h-full antialiased`}>
+    <html lang="pt-BR" className={`${ui.variable} h-full antialiased`}>
       <body className="min-h-full">
         {children}
         <Toaster

@@ -111,7 +111,10 @@ export function Toggle({
   label: string;
 }) {
   return (
-    <label className={cx("inline-flex cursor-pointer items-center gap-3", disabled && "cursor-not-allowed opacity-50")}>
+    // relative: o input sr-only (absolute) fica preso ao label; sem isso o foco rola o <dialog> e o layout quebra
+    <label
+      className={cx("relative inline-flex cursor-pointer items-center gap-3", disabled && "cursor-not-allowed opacity-50")}
+    >
       <input
         type="checkbox"
         role="switch"
@@ -186,7 +189,8 @@ export function Modal({
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
       className={cx(
-        "mx-auto mt-auto mb-0 max-h-[92dvh] w-full max-w-none overflow-hidden rounded-t-[1.75rem] bg-card p-0 text-ink shadow-2xl",
+        // overflow-clip (não hidden): o dialog nunca é rolado por foco/scrollIntoView
+        "mx-auto mt-auto mb-0 max-h-[92dvh] w-full max-w-none overflow-clip rounded-t-[1.75rem] bg-card p-0 text-ink shadow-2xl",
         "sm:m-auto sm:w-[calc(100%-2rem)] sm:rounded-3xl",
         wide ? "sm:max-w-3xl" : "sm:max-w-md",
       )}

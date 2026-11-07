@@ -2,7 +2,7 @@
 
 @theme {
   --font-sans: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-serif), ui-serif, Georgia, serif;
+  --font-display: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
 
   --color-ink: #16130f;
   --color-ink-2: #241f18;
@@ -22,6 +22,13 @@
   --shadow-card: 0 1px 2px rgb(22 19 15 / 0.04), 0 6px 20px -12px rgb(22 19 15 / 0.12);
   --shadow-lift: 0 2px 4px rgb(22 19 15 / 0.05), 0 16px 32px -16px rgb(22 19 15 / 0.22);
   --ease-out-soft: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* títulos/valores: mesma família, tracking apertado (utilitário tracking-* ainda vence) */
+@layer base {
+  .font-display {
+    letter-spacing: -0.025em;
+  }
 }
 
 html {

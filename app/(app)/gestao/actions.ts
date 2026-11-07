@@ -3,11 +3,42 @@
 import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/session";
-import { normalizarUsuario, usuarioToEmail, type Idioma, type Role } from "@/lib/domain";
+import {
+  normalizarUsuario,
+  usuarioToEmail,
+  type Idioma,
+  type Role,
+} from "@/lib/domain";
+import { MAX_NOME, campoTexto, validar } from "@/lib/texto";
 
 type Res = { error?: string };
 const BAN = "876000h"; // ~100 anos
 const USUARIO_RE = /^[a-z0-9._-]{3,32}$/;
+const IDIOMAS: Idioma[] = ["pt", "es"];
+
+// Nome obrigatório, comentário opcional (mesma regra do banco); lança com a mensagem do primeiro erro
+function dadosPessoais(input: {
+  nome: string;
+  descricao: string;
+  idioma: Idioma;
+}) {
+  const { erro, valores } = validar({
+    nome: campoTexto(input.nome, "Nome", { obrigatorio: true, max: MAX_NOME }),
+    descricao: campoTexto(input.descricao, "Comentário"),
+  });
+  if (erro) throw new Error(erro);
+  if (!IDIOMAS.includes(input.idioma)) throw new Error("Idioma inválido");
+  return {
+    nome: valores.nome!,
+    descricao: valores.descricao,
+    idioma: input.idioma,
+  };
+}
+
+function senhaValida(senha: string) {
+  if (senha && (senha.length < 6 || !senha.trim()))
+    throw new Error("A senha precisa de ao menos 6 caracteres");
+}
 
 async function lojasDe(userId: string) {
   const { data } = await createAdminClient()
@@ -20,19 +51,28 @@ async function lojasDe(userId: string) {
 
 // Regras do legado: admin do sistema gerencia todos; os demais só quem tem nível
 // inferior e divide ao menos uma loja (ou a si mesmo, para dados pessoais).
-async function autorizar(alvoId: string, opts: { permitirSiMesmo?: boolean } = {}) {
+async function autorizar(
+  alvoId: string,
+  opts: { permitirSiMesmo?: boolean } = {},
+) {
   const { profile: ator } = await getSession();
   if (ator.role < 90) throw new Error("Sem permissão");
-  const { data: alvo } = await createAdminClient().from("profiles").select("*").eq("id", alvoId).single();
+  const { data: alvo } = await createAdminClient()
+    .from("profiles")
+    .select("*")
+    .eq("id", alvoId)
+    .single();
   if (!alvo) throw new Error("Pessoa não encontrada");
   if (ator.role === 200) return { ator, alvo };
   if (alvo.id === ator.id) {
     if (opts.permitirSiMesmo) return { ator, alvo };
     throw new Error("Você não pode alterar isso no seu próprio usuário");
   }
-  if (alvo.role >= ator.role) throw new Error("Sem permissão sobre este usuário");
+  if (alvo.role >= ator.role)
+    throw new Error("Sem permissão sobre este usuário");
   const [a, b] = await Promise.all([lojasDe(ator.id), lojasDe(alvo.id)]);
-  if (![...b].some((l) => a.has(l))) throw new Error("Usuário não pertence às suas lojas");
+  if (![...b].some((l) => a.has(l)))
+    throw new Error("Usuário não pertence às suas lojas");
   return { ator, alvo };
 }
 
@@ -47,7 +87,11 @@ const run = async (fn: () => Promise<unknown>): Promise<Res> => {
     return {};
   } catch (e) {
     const msg = (e as Error).message;
-    return { error: /duplicate|already|unique/i.test(msg) ? "Este usuário já existe" : msg };
+    return {
+      error: /duplicate|already|unique/i.test(msg)
+        ? "Este usuário já existe"
+        : msg,
+    };
   }
 };
 
@@ -66,11 +110,16 @@ export async function criarPessoa(input: {
 }): Promise<Res> {
   return run(async () => {
     const { profile: ator } = await getSession();
-    if (ator.role < 90 || !(await acessaLoja(input.lojaId))) throw new Error("Sem permissão");
+    if (ator.role < 90 || !(await acessaLoja(input.lojaId)))
+      throw new Error("Sem permissão");
     const usuario = normalizarUsuario(input.usuario);
-    if (!USUARIO_RE.test(usuario)) throw new Error("Usuário: 3 a 32 caracteres (letras minúsculas, números, . _ -)");
-    if (!input.nome.trim()) throw new Error("Informe o nome");
-    if (input.senha && input.senha.length < 6) throw new Error("A senha precisa de ao menos 6 caracteres");
+    if (!USUARIO_RE.test(usuario))
+      throw new Error(
+        "Usuário: 3 a 32 caracteres (letras minúsculas, números, . _ -)",
+      );
+    const dados = dadosPessoais(input);
+    senhaValida(input.senha);
+    if (!Number.isInteger(input.lojaId)) throw new Error("Loja inválida");
 
     const admin = createAdminClient();
     const habilitado = !!input.senha;
@@ -87,15 +136,17 @@ export async function criarPessoa(input: {
       check(
         await admin.from("profiles").insert({
           id: uid,
-          nome: input.nome.trim(),
+          ...dados,
           usuario,
-          descricao: input.descricao.trim() || null,
-          idioma: input.idioma,
           role: 50,
           acesso_habilitado: habilitado,
         }),
       );
-      check(await admin.from("loja_membros").insert({ loja_id: input.lojaId, user_id: uid }));
+      check(
+        await admin
+          .from("loja_membros")
+          .insert({ loja_id: input.lojaId, user_id: uid }),
+      );
     } catch (e) {
       await admin.auth.admin.deleteUser(uid); // não deixar usuário de auth órfão
       throw e;
@@ -108,13 +159,10 @@ export async function atualizarDados(
   input: { nome: string; descricao: string; idioma: Idioma },
 ): Promise<Res> {
   return run(async () => {
+    const dados = dadosPessoais(input);
     await autorizar(id, { permitirSiMesmo: true });
-    if (!input.nome.trim()) throw new Error("Informe o nome");
     check(
-      await createAdminClient()
-        .from("profiles")
-        .update({ nome: input.nome.trim(), descricao: input.descricao.trim() || null, idioma: input.idioma })
-        .eq("id", id),
+      await createAdminClient().from("profiles").update(dados).eq("id", id),
     );
   });
 }
@@ -126,8 +174,11 @@ export async function atualizarAcesso(
   return run(async () => {
     const { alvo } = await autorizar(id, { permitirSiMesmo: true });
     const usuario = normalizarUsuario(input.usuario);
-    if (!USUARIO_RE.test(usuario)) throw new Error("Usuário: 3 a 32 caracteres (letras minúsculas, números, . _ -)");
-    if (input.senha && input.senha.length < 6) throw new Error("A senha precisa de ao menos 6 caracteres");
+    if (!USUARIO_RE.test(usuario))
+      throw new Error(
+        "Usuário: 3 a 32 caracteres (letras minúsculas, números, . _ -)",
+      );
+    senhaValida(input.senha);
     if (input.habilitado && !alvo.acesso_habilitado && !input.senha)
       throw new Error("Defina uma senha para habilitar o acesso");
 
@@ -142,7 +193,12 @@ export async function atualizarAcesso(
       ban_duration: input.habilitado && alvo.ativo ? "none" : BAN,
     });
     if (error) throw new Error(error.message);
-    check(await admin.from("profiles").update({ acesso_habilitado: input.habilitado }).eq("id", id));
+    check(
+      await admin
+        .from("profiles")
+        .update({ acesso_habilitado: input.habilitado })
+        .eq("id", id),
+    );
   });
 }
 
@@ -150,19 +206,30 @@ export async function atualizarRole(id: string, role: Role): Promise<Res> {
   return run(async () => {
     const { ator } = await autorizar(id);
     if (ator.role < 100) throw new Error("Só administradores alteram perfis");
-    if (ator.role !== 200 && role >= ator.role) throw new Error("Você só pode atribuir perfis abaixo do seu");
-    check(await createAdminClient().from("profiles").update({ role }).eq("id", id));
+    if (ator.role !== 200 && role >= ator.role)
+      throw new Error("Você só pode atribuir perfis abaixo do seu");
+    check(
+      await createAdminClient().from("profiles").update({ role }).eq("id", id),
+    );
   });
 }
 
-export async function definirLoja(id: string, lojaId: number, ativo: boolean): Promise<Res> {
+export async function definirLoja(
+  id: string,
+  lojaId: number,
+  ativo: boolean,
+): Promise<Res> {
   return run(async () => {
     await autorizar(id);
-    if (!(await acessaLoja(lojaId))) throw new Error("Sem permissão nesta loja");
+    if (!(await acessaLoja(lojaId)))
+      throw new Error("Sem permissão nesta loja");
     check(
       await createAdminClient()
         .from("loja_membros")
-        .upsert({ loja_id: lojaId, user_id: id, ativo }, { onConflict: "loja_id,user_id" }),
+        .upsert(
+          { loja_id: lojaId, user_id: id, ativo },
+          { onConflict: "loja_id,user_id" },
+        ),
     );
   });
 }

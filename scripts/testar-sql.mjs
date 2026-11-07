@@ -21,7 +21,9 @@ for (const f of readdirSync(dir).sort())
 const ADM = "00000000-0000-0000-0000-000000000100",
   CHEFE = "00000000-0000-0000-0000-000000000090",
   VEND = "00000000-0000-0000-0000-000000000050";
+// replica: dados "legados" (nomes de 2 letras) entram sem passar pelos triggers de validação de texto
 await db.exec(`
+  set session_replication_role = replica;
   insert into auth.users values ('${ADM}'), ('${CHEFE}'), ('${VEND}');
   insert into public.profiles (id, nome, usuario, role) values
     ('${ADM}', 'Adm', 'adm', 100), ('${CHEFE}', 'Chefe', 'chefe', 90), ('${VEND}', 'Vend', 'vend', 50);
@@ -30,6 +32,7 @@ await db.exec(`
   insert into public.produtos (loja_id, nome, preco, valor_combo) values (1, 'P1', 60, 5), (1, 'P2', 10, 1);
   insert into public.estoque_movimentos (produto_id, tipo, quantidade, created_at) values
     (1, 'inventario', 10, now() - interval '1 hour'), (2, 'inventario', 10, now() - interval '1 hour');
+  set session_replication_role = origin;
 `);
 
 const as = async (uid, sql, params) => {
@@ -394,5 +397,84 @@ assert.deepEqual(est, [
   { produto_id: 1, estoque: 12, minimo: 0 },
   { produto_id: 2, estoque: 6, minimo: 7 },
 ]);
+
+// validação de texto no banco (mesma regra do app)
+await fails(
+  as(
+    ADM,
+    "insert into public.produtos (loja_id, nome, preco) values (1, '  ab  ', 10)",
+  ),
+  /Nome: escreva ao menos 3 letras/,
+);
+await fails(
+  as(
+    ADM,
+    "insert into public.produtos (loja_id, nome, preco) values (1, '   ', 10)",
+  ),
+  /Nome: campo obrigatório/,
+);
+await fails(
+  as(
+    ADM,
+    "insert into public.produtos (loja_id, nome, preco) values (1, '. . .', 10)",
+  ),
+  /3 letras/,
+);
+await fails(
+  as(
+    ADM,
+    `insert into public.produtos (loja_id, nome, preco) values (1, '${"x".repeat(81)}', 10)`,
+  ),
+  /no máximo 80/,
+);
+const [novo] = await as(
+  ADM,
+  "insert into public.produtos (loja_id, nome, descricao, preco) values (1, '  Âmbar   Noir ', '   ', 10) returning nome, descricao",
+);
+assert.deepEqual(
+  novo,
+  { nome: "Âmbar Noir", descricao: null },
+  "espaços juntados; opcional vazio vira null",
+);
+await fails(
+  as(
+    VEND,
+    "insert into public.estoque_movimentos (produto_id, tipo, quantidade, comentario) values (1, 'amostra', 1, 'ok')",
+  ),
+  /Comentário: escreva ao menos 3 letras/,
+);
+await fails(
+  confirmar(VEND, "avaria", [{ produto_id: 1, quantidade: 1 }], "ok"),
+  /3 letras/,
+);
+await as(
+  VEND,
+  `insert into public.pedidos (loja_id, vendedor_id) values (1, '${VEND}')`,
+);
+await fails(
+  as(VEND, "update public.pedidos set nome = 'Jo' where vendedor_id = $1", [
+    VEND,
+  ]),
+  /Nome: escreva ao menos 3 letras/,
+);
+// legado: nome curto não trava a edição de outro campo da mesma linha
+await as(
+  ADM,
+  "update public.produtos set descricao = 'Nova descrição' where id = 1",
+);
+assert.equal(
+  (await db.query("select nome from public.produtos where id = 1")).rows[0]
+    .nome,
+  "P1",
+);
+await fails(
+  as(ADM, "update public.produtos set nome = 'P9' where id = 1"),
+  /3 letras/,
+  "mas trocar o nome exige a regra",
+);
+await fails(
+  db.query("update public.lojas set nome = 'L' where id = 1"),
+  /Nome da loja/,
+);
 
 console.log("todos os testes passaram");

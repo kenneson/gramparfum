@@ -6,6 +6,7 @@ import { KeyRound, Pencil, Plus, Store } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useData } from "@/lib/use-data";
+import { MAX_NOME, MAX_TEXTO, campoTexto, validar } from "@/lib/texto";
 import {
   ROLES,
   money,
@@ -232,6 +233,7 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
           <Field label="Nome">
             <Input
               value={dados.nome}
+              maxLength={MAX_NOME}
               onChange={(e) => setDados({ ...dados, nome: e.target.value })}
             />
           </Field>
@@ -249,6 +251,7 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
           <Field label="Comentário" className="sm:col-span-2">
             <Textarea
               value={dados.descricao}
+              maxLength={MAX_TEXTO}
               onChange={(e) =>
                 setDados({ ...dados, descricao: e.target.value })
               }
@@ -412,7 +415,13 @@ function NovaPessoa({
           aparece no caixa mas não entra no sistema.
         </p>
         <Field label="Nome">
-          <Input name="nome" required autoFocus />
+          <Input
+            name="nome"
+            required
+            minLength={3}
+            maxLength={MAX_NOME}
+            autoFocus
+          />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Usuário">
@@ -439,7 +448,7 @@ function NovaPessoa({
           />
         </Field>
         <Field label="Comentário">
-          <Textarea name="descricao" />
+          <Textarea name="descricao" maxLength={MAX_TEXTO} />
         </Field>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
@@ -559,15 +568,36 @@ function FormProduto({
   const [aVenda, setAVenda] = useState(p?.a_venda ?? true);
 
   async function salvar(f: FormData, remover = false) {
-    const row = {
-      nome: String(f.get("nome")).trim(),
-      descricao: String(f.get("descricao")).trim() || null,
-      preco: Number(f.get("preco")),
-      valor_combo: Number(f.get("valor_combo") || 0),
-      estoque_minimo: Number(f.get("estoque_minimo") || 0),
-      a_venda: aVenda,
-      ...(remover && { ativo: false }),
-    };
+    const { erro, valores } = validar({
+      nome: campoTexto(String(f.get("nome") ?? ""), "Nome", {
+        obrigatorio: true,
+        max: MAX_NOME,
+      }),
+      descricao: campoTexto(String(f.get("descricao") ?? ""), "Descrição"),
+    });
+    const preco = Number(f.get("preco"));
+    const valor_combo = Number(f.get("valor_combo") || 0);
+    const estoque_minimo = Number(f.get("estoque_minimo") || 0);
+    // remover não exige o resto do formulário válido (produto antigo com dado ruim ainda sai do catálogo)
+    if (!remover) {
+      if (erro) return toast.error(erro);
+      if (!(preco > 0))
+        return toast.error("Preço: informe um valor maior que zero");
+      if (!(valor_combo >= 0))
+        return toast.error("Valor combo: não pode ser negativo");
+      if (!Number.isInteger(estoque_minimo) || estoque_minimo < 0)
+        return toast.error("Estoque mínimo: número inteiro, zero ou mais");
+    }
+    const row = remover
+      ? { ativo: false }
+      : {
+          nome: valores.nome!,
+          descricao: valores.descricao,
+          preco,
+          valor_combo,
+          estoque_minimo,
+          a_venda: aVenda,
+        };
     const { error } = p
       ? await supabase.from("produtos").update(row).eq("id", p.id)
       : await supabase.from("produtos").insert({ ...row, loja_id: lojaId });
@@ -587,10 +617,21 @@ function FormProduto({
         }}
       >
         <Field label="Nome">
-          <Input name="nome" required defaultValue={p?.nome} autoFocus />
+          <Input
+            name="nome"
+            required
+            minLength={3}
+            maxLength={MAX_NOME}
+            defaultValue={p?.nome}
+            autoFocus
+          />
         </Field>
         <Field label="Descrição">
-          <Textarea name="descricao" defaultValue={p?.descricao ?? ""} />
+          <Textarea
+            name="descricao"
+            maxLength={MAX_TEXTO}
+            defaultValue={p?.descricao ?? ""}
+          />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Preço">
@@ -688,9 +729,13 @@ function Lojas() {
         className="mb-4 flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!nome.trim()) return;
+          const c = campoTexto(nome, "Nome da loja", {
+            obrigatorio: true,
+            max: MAX_NOME,
+          });
+          if (c.erro) return toast.error(c.erro);
           mutar(
-            supabase.from("lojas").insert({ nome: nome.trim() }),
+            supabase.from("lojas").insert({ nome: c.valor! }),
             "Loja criada",
           );
           setNome("");
@@ -698,6 +743,7 @@ function Lojas() {
       >
         <Input
           placeholder="Nome da nova loja"
+          maxLength={MAX_NOME}
           value={nome}
           onChange={(e) => setNome(e.target.value)}
         />

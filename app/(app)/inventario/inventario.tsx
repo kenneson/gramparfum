@@ -40,6 +40,7 @@ import {
   type Estoque,
 } from "@/lib/domain";
 import type { Amostra } from "@/lib/amostras";
+import { MAX_TEXTO, campoTexto } from "@/lib/texto";
 import {
   Badge,
   Button,
@@ -353,12 +354,17 @@ function useRascunhos(lojaId: number | null) {
 
   // grava o rascunho antes (se a confirmação falhar, nada se perde); o banco apaga o rascunho ao confirmar
   async function confirmar(tipo: Tipo, itens: ItemR[], comentario: string) {
+    const com = campoTexto(comentario, "Comentário");
+    if (com.erro) {
+      toast.error(com.erro);
+      return null;
+    }
     await flush(tipo);
     const { data, error } = await supabase.rpc("confirmar_movimento", {
       p_loja_id: lojaId!,
       p_tipo: tipo,
       p_itens: itens,
-      p_comentario: comentario,
+      p_comentario: com.valor,
     });
     if (error) {
       toast.error("Lançamento não registrado", { description: error.message });
@@ -1023,6 +1029,7 @@ function LancamentoForm({
       <div className="flex flex-col gap-3 border-t border-line px-5 py-4">
         <Textarea
           aria-label="Comentário"
+          maxLength={MAX_TEXTO}
           placeholder={
             tipo === "entrada"
               ? "Fornecedor, nota fiscal… (opcional)"
@@ -1397,6 +1404,7 @@ function ContagemForm({
           )}
           <Textarea
             aria-label="Comentário"
+            maxLength={MAX_TEXTO}
             placeholder="Comentário (opcional)"
             value={r.comentario}
             onChange={(e) =>
@@ -1731,11 +1739,13 @@ function EditarAmostra({
   const valido = qtd !== "" && Number.isInteger(n) && n >= 0;
 
   async function salvar(quantidade = n) {
+    const com = campoTexto(comentario, "Comentário");
+    if (com.erro) return toast.error(com.erro);
     setSalvando(true);
     const { error } = await supabase.rpc("editar_amostra", {
       p_id: amostra.id,
       p_quantidade: quantidade,
-      p_comentario: comentario,
+      p_comentario: com.valor,
     });
     setSalvando(false);
     if (error)
@@ -1780,6 +1790,7 @@ function EditarAmostra({
           <Field label="Comentário">
             <Input
               value={comentario}
+              maxLength={MAX_TEXTO}
               onChange={(e) => setComentario(e.target.value)}
             />
           </Field>

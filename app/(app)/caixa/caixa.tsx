@@ -1,21 +1,48 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Bookmark, Minus, Plus, Search, ShoppingBag, Trash2 } from "lucide-react";
+import {
+  Bookmark,
+  Minus,
+  Plus,
+  Search,
+  ShoppingBag,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useData } from "@/lib/use-data";
 import { money, num, type Estoque, type Produto } from "@/lib/domain";
-import { Avatar, Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Textarea, cx } from "@/components/ui";
+import { MAX_NOME, MAX_TEXTO, campoTexto, validar } from "@/lib/texto";
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  Empty,
+  Field,
+  Input,
+  Modal,
+  PageHeader,
+  Textarea,
+  cx,
+} from "@/components/ui";
 import { SemLoja, useApp } from "@/components/shell";
 import { Pagamento } from "./pagamento";
 
 type Vendedor = { id: string; nome: string };
 type Pedido = { id: number; nome: string | null; descricao: string | null };
-type Item = { id: number; produto_id: number; preco: number; quantidade: number; produtos: { nome: string } };
+type Item = {
+  id: number;
+  produto_id: number;
+  preco: number;
+  quantidade: number;
+  produtos: { nome: string };
+};
 
 const supabase = createClient();
-const mapaEstoque = (e: Estoque[] | null) => new Map((e ?? []).map((r) => [r.produto_id, r.estoque]));
+const mapaEstoque = (e: Estoque[] | null) =>
+  new Map((e ?? []).map((r) => [r.produto_id, r.estoque]));
 
 export function Caixa() {
   const { profile, lojaId, t } = useApp();
@@ -31,14 +58,25 @@ export function Caixa() {
         .eq("loja_id", lojaId)
         .eq("ativo", true)
         .eq("profiles.ativo", true),
-      supabase.from("produtos").select("*").eq("loja_id", lojaId).eq("ativo", true).eq("a_venda", true).order("nome"),
+      supabase
+        .from("produtos")
+        .select("*")
+        .eq("loja_id", lojaId)
+        .eq("ativo", true)
+        .eq("a_venda", true)
+        .order("nome"),
       supabase.rpc("estoque_loja", { p_loja_id: lojaId }),
     ]);
     let vendedores = ((m.data ?? []) as unknown as { profiles: Vendedor }[])
       .map((r) => r.profiles)
       .sort((a, b) => a.nome.localeCompare(b.nome));
-    if (profile.role === 50) vendedores = vendedores.filter((v) => v.id === profile.id);
-    return { vendedores, produtos: (p.data ?? []) as Produto[], estoque: mapaEstoque(e.data as Estoque[]) };
+    if (profile.role === 50)
+      vendedores = vendedores.filter((v) => v.id === profile.id);
+    return {
+      vendedores,
+      produtos: (p.data ?? []) as Produto[],
+      estoque: mapaEstoque(e.data as Estoque[]),
+    };
   }, [lojaId, profile]);
   const [loja, recarregarLoja] = useData(buscarLoja);
 
@@ -47,7 +85,8 @@ export function Caixa() {
   const vendedores = loja?.vendedores ?? [];
   const vendedorId = vendedores.some((v) => v.id === escolhido)
     ? escolhido
-    : ((vendedores.find((v) => v.id === profile.id) ?? vendedores[0])?.id ?? null);
+    : ((vendedores.find((v) => v.id === profile.id) ?? vendedores[0])?.id ??
+      null);
 
   return (
     <>
@@ -71,7 +110,11 @@ export function Caixa() {
             {v.nome}
           </button>
         ))}
-        {loja && vendedores.length === 0 && <p className="text-sm text-muted">Nenhum vendedor ativo nesta loja.</p>}
+        {loja && vendedores.length === 0 && (
+          <p className="text-sm text-muted">
+            Nenhum vendedor ativo nesta loja.
+          </p>
+        )}
       </div>
 
       {loja && vendedorId && (
@@ -124,8 +167,11 @@ function Venda({
   const [pedidosData, recarregarPedidos, setPedidos] = useData(buscarPedidos);
   const pedidos = pedidosData ?? [];
 
-  const pedidoId = pedidos.some((p) => p.id === escolhido && p.nome !== null) ? escolhido : null;
-  const pedidoAtivo = pedidoId ?? pedidos.find((p) => p.nome === null)?.id ?? null;
+  const pedidoId = pedidos.some((p) => p.id === escolhido && p.nome !== null)
+    ? escolhido
+    : null;
+  const pedidoAtivo =
+    pedidoId ?? pedidos.find((p) => p.nome === null)?.id ?? null;
 
   // Itens marcados com o pedido de origem: durante uma troca de pedido nunca mostramos/editamos itens do anterior
   const buscarItens = useCallback(async () => {
@@ -137,19 +183,27 @@ function Venda({
       .order("id");
     return {
       pedido: pedidoAtivo,
-      itens: ((data ?? []) as unknown as Item[]).map((i) => ({ ...i, preco: Number(i.preco) })),
+      itens: ((data ?? []) as unknown as Item[]).map((i) => ({
+        ...i,
+        preco: Number(i.preco),
+      })),
     };
   }, [pedidoAtivo]);
   const [itensData, recarregarItens, setItensData] = useData(buscarItens);
   const itens = itensData?.pedido === pedidoAtivo ? itensData.itens : [];
-  const setItens = (fn: (is: Item[]) => Item[]) => setItensData((d) => d && { ...d, itens: fn(d.itens) });
+  const setItens = (fn: (is: Item[]) => Item[]) =>
+    setItensData((d) => d && { ...d, itens: fn(d.itens) });
 
   const total = itens.reduce((s, i) => s + i.preco * i.quantidade, 0);
   const qtd = itens.reduce((s, i) => s + i.quantidade, 0);
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    return q ? produtos.filter((p) => `${p.nome} ${p.descricao ?? ""}`.toLowerCase().includes(q)) : produtos;
+    return q
+      ? produtos.filter((p) =>
+          `${p.nome} ${p.descricao ?? ""}`.toLowerCase().includes(q),
+        )
+      : produtos;
   }, [busca, produtos]);
 
   async function garantirPedido() {
@@ -173,11 +227,15 @@ function Venda({
             .from("pedido_itens")
             .update({ quantidade: existente.quantidade + 1 })
             .eq("id", existente.id)
-        : await supabase.from("pedido_itens").insert({ pedido_id: id, produto_id: p.id, preco: p.preco });
+        : await supabase
+            .from("pedido_itens")
+            .insert({ pedido_id: id, produto_id: p.id, preco: p.preco });
       if (error) throw error;
       recarregarItens();
     } catch (e) {
-      toast.error("Não foi possível adicionar o produto", { description: (e as Error).message });
+      toast.error("Não foi possível adicionar o produto", {
+        description: (e as Error).message,
+      });
     }
   }
 
@@ -191,9 +249,17 @@ function Venda({
     adicionar(p);
   }
 
-  async function editarItem(item: Item, patch: Partial<Pick<Item, "preco" | "quantidade">>) {
-    setItens((is) => is.map((i) => (i.id === item.id ? { ...i, ...patch } : i)));
-    const { error } = await supabase.from("pedido_itens").update(patch).eq("id", item.id);
+  async function editarItem(
+    item: Item,
+    patch: Partial<Pick<Item, "preco" | "quantidade">>,
+  ) {
+    setItens((is) =>
+      is.map((i) => (i.id === item.id ? { ...i, ...patch } : i)),
+    );
+    const { error } = await supabase
+      .from("pedido_itens")
+      .update(patch)
+      .eq("id", item.id);
     if (error) {
       toast.error("Erro ao atualizar item", { description: error.message });
       recarregarItens();
@@ -202,17 +268,32 @@ function Venda({
 
   async function removerItem(item: Item) {
     setItens((is) => is.filter((i) => i.id !== item.id));
-    const { error } = await supabase.from("pedido_itens").delete().eq("id", item.id);
+    const { error } = await supabase
+      .from("pedido_itens")
+      .delete()
+      .eq("id", item.id);
     if (error) {
       toast.error("Erro ao remover item", { description: error.message });
       recarregarItens();
     }
   }
 
-  async function salvarPedido(nome: string, descricao: string) {
+  async function salvarPedido(nomeBruto: string, descricaoBruta: string) {
     if (!pedidoAtivo) return;
-    const { error } = await supabase.from("pedidos").update({ nome, descricao }).eq("id", pedidoAtivo);
-    if (error) return toast.error("Erro ao salvar pedido", { description: error.message });
+    const { erro, valores } = validar({
+      nome: campoTexto(nomeBruto, "Nome", { obrigatorio: true, max: MAX_NOME }),
+      descricao: campoTexto(descricaoBruta, "Descrição"),
+    });
+    if (erro) return toast.error(erro);
+    const { nome, descricao } = valores;
+    const { error } = await supabase
+      .from("pedidos")
+      .update({ nome, descricao })
+      .eq("id", pedidoAtivo);
+    if (error)
+      return toast.error("Erro ao salvar pedido", {
+        description: error.message,
+      });
     toast.success(`Pedido “${nome}” salvo`);
     setSalvando(false);
     setEscolhido(null);
@@ -222,9 +303,18 @@ function Venda({
   // Só apaga cliente salvo vazio: os produtos têm de ser removidos antes (o FK apagaria em cascata)
   async function apagarPedido() {
     if (!pedidoSel || itensData?.pedido !== pedidoSel.id) return; // itens ainda carregando
-    if (itens.length > 0) return toast.warning("Remova os produtos antes de apagar o cliente salvo");
-    const { error } = await supabase.from("pedidos").delete().eq("id", pedidoSel.id);
-    if (error) return toast.error("Erro ao apagar cliente salvo", { description: error.message });
+    if (itens.length > 0)
+      return toast.warning(
+        "Remova os produtos antes de apagar o cliente salvo",
+      );
+    const { error } = await supabase
+      .from("pedidos")
+      .delete()
+      .eq("id", pedidoSel.id);
+    if (error)
+      return toast.error("Erro ao apagar cliente salvo", {
+        description: error.message,
+      });
     toast.success(`“${pedidoSel.nome}” apagado`);
     setEscolhido(null);
     recarregarPedidos();
@@ -253,7 +343,9 @@ function Venda({
           {itens.map((i) => (
             <li key={i.id} className="px-5 py-3">
               <div className="flex items-start justify-between gap-3">
-                <span className="text-sm leading-snug font-semibold">{i.produtos.nome}</span>
+                <span className="text-sm leading-snug font-semibold">
+                  {i.produtos.nome}
+                </span>
                 <button
                   type="button"
                   onClick={() => removerItem(i)}
@@ -264,28 +356,40 @@ function Venda({
                 </button>
               </div>
               <div className="mt-2 flex items-center gap-2.5">
-                <PrecoInput key={i.preco} valor={i.preco} onCommit={(preco) => editarItem(i, { preco })} />
+                <PrecoInput
+                  key={i.preco}
+                  valor={i.preco}
+                  onCommit={(preco) => editarItem(i, { preco })}
+                />
                 <div className="flex items-center rounded-xl border border-line">
                   <button
                     type="button"
                     aria-label="Diminuir"
                     disabled={i.quantidade <= 1}
-                    onClick={() => editarItem(i, { quantidade: i.quantidade - 1 })}
+                    onClick={() =>
+                      editarItem(i, { quantidade: i.quantidade - 1 })
+                    }
                     className="grid size-9 place-items-center rounded-l-xl text-muted hover:text-ink active:bg-ink/5 disabled:opacity-30"
                   >
                     <Minus size={14} />
                   </button>
-                  <span className="num w-7 text-center text-sm font-semibold">{i.quantidade}</span>
+                  <span className="num w-7 text-center text-sm font-semibold">
+                    {i.quantidade}
+                  </span>
                   <button
                     type="button"
                     aria-label="Aumentar"
-                    onClick={() => editarItem(i, { quantidade: i.quantidade + 1 })}
+                    onClick={() =>
+                      editarItem(i, { quantidade: i.quantidade + 1 })
+                    }
                     className="grid size-9 place-items-center rounded-r-xl text-muted hover:text-ink active:bg-ink/5"
                   >
                     <Plus size={14} />
                   </button>
                 </div>
-                <span className="num ml-auto text-sm font-bold">{money(i.preco * i.quantidade, idioma)}</span>
+                <span className="num ml-auto text-sm font-bold">
+                  {money(i.preco * i.quantidade, idioma)}
+                </span>
               </div>
             </li>
           ))}
@@ -298,7 +402,9 @@ function Venda({
     <div className="border-t border-line px-5 py-4">
       <div className="flex items-baseline justify-between">
         <span className="text-sm text-muted">{t.total}</span>
-        <span className="num font-display text-4xl font-semibold">{money(total, idioma)}</span>
+        <span className="num font-display text-4xl font-semibold">
+          {money(total, idioma)}
+        </span>
       </div>
       <div className="mt-4 grid grid-cols-[auto_1fr] gap-2">
         <Button
@@ -338,7 +444,12 @@ function Venda({
             {t.pedidoAtual}
           </Chip>
           {salvos.map((p) => (
-            <Chip key={p.id} active={pedidoId === p.id} onClick={() => setEscolhido(p.id)} title={p.descricao ?? ""}>
+            <Chip
+              key={p.id}
+              active={pedidoId === p.id}
+              onClick={() => setEscolhido(p.id)}
+              title={p.descricao ?? ""}
+            >
               <Bookmark size={13} /> {p.nome}
             </Chip>
           ))}
@@ -346,7 +457,11 @@ function Venda({
             <button
               type="button"
               onClick={apagarPedido}
-              title={itens.length > 0 ? "Remova os produtos antes de apagar" : `Apagar “${pedidoSel.nome}”`}
+              title={
+                itens.length > 0
+                  ? "Remova os produtos antes de apagar"
+                  : `Apagar “${pedidoSel.nome}”`
+              }
               className={cx(
                 "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold transition",
                 itens.length > 0
@@ -365,7 +480,10 @@ function Venda({
         <section>
           <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 -mx-4 mb-3 bg-paper/85 px-4 py-2 backdrop-blur-xl lg:static lg:mx-0 lg:mb-4 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
             <div className="relative">
-              <Search size={18} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
+              <Search
+                size={18}
+                className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted"
+              />
               <Input
                 type="search"
                 enterKeyHint="search"
@@ -389,14 +507,24 @@ function Venda({
                     onClick={() => clicarProduto(p)}
                     className="group flex min-h-32 flex-col rounded-2xl border border-line/80 bg-card p-3.5 text-left shadow-card transition duration-150 hover:-translate-y-0.5 hover:border-gold/60 hover:shadow-lift active:translate-y-0 active:scale-[0.97] active:bg-gold-soft/40 sm:min-h-36 sm:p-4"
                   >
-                    <div className="line-clamp-2 text-[15px] leading-snug font-semibold sm:text-base">{p.nome}</div>
-                    {p.descricao && <div className="mt-1 line-clamp-2 text-xs text-muted">{p.descricao}</div>}
+                    <div className="line-clamp-2 text-[15px] leading-snug font-semibold sm:text-base">
+                      {p.nome}
+                    </div>
+                    {p.descricao && (
+                      <div className="mt-1 line-clamp-2 text-xs text-muted">
+                        {p.descricao}
+                      </div>
+                    )}
                     <div className="mt-auto flex flex-wrap items-end justify-between gap-x-2 gap-y-1 pt-3">
                       <span className="num font-display text-[1.375rem] leading-none font-semibold sm:text-2xl">
                         {money(p.preco, idioma)}
                       </span>
                       <span className="flex flex-wrap gap-1">
-                        {Number(p.valor_combo) > 0 && <Badge tone="gold">combo {num(p.valor_combo, 2)}</Badge>}
+                        {Number(p.valor_combo) > 0 && (
+                          <Badge tone="gold">
+                            combo {num(p.valor_combo, 2)}
+                          </Badge>
+                        )}
                         {estoqueVisivel ? (
                           <Badge tone={est <= 0 ? "danger" : "neutral"}>
                             {t.estoque} {est}
@@ -416,7 +544,9 @@ function Venda({
         {/* Carrinho (desktop) */}
         <Card className="hidden lg:sticky lg:top-22 lg:block">
           <div className="flex items-center justify-between border-b border-line px-5 py-4">
-            <h2 className="font-display text-2xl font-semibold">{pedidoSel?.nome ?? t.detalheVenda}</h2>
+            <h2 className="font-display text-2xl font-semibold">
+              {pedidoSel?.nome ?? t.detalheVenda}
+            </h2>
             {qtd > 0 && <Badge tone="gold">{qtd} itens</Badge>}
           </div>
           {listaItens}
@@ -441,13 +571,20 @@ function Venda({
                 </span>
               </span>
               <span className="min-w-0">
-                <span className="block text-[11px] text-white/60">Ver pedido</span>
+                <span className="block text-[11px] text-white/60">
+                  Ver pedido
+                </span>
                 <span className="num block truncate font-display text-xl leading-tight font-semibold">
                   {money(total, idioma)}
                 </span>
               </span>
             </button>
-            <Button variant="gold" size="lg" className="px-5" onClick={() => setCobrando(true)}>
+            <Button
+              variant="gold"
+              size="lg"
+              className="px-5"
+              onClick={() => setCobrando(true)}
+            >
               {t.cobrar}
             </Button>
           </div>
@@ -475,23 +612,35 @@ function Venda({
               p_pedido_id: pedidoAtivo,
               p_pagamentos: pagamentos,
             });
-            if (error) return toast.error("Venda não registrada", { description: error.message });
+            if (error)
+              return toast.error("Venda não registrada", {
+                description: error.message,
+              });
             vendaFinalizada(data as number);
           }}
         />
       )}
-      <SalvarPedido open={salvando} onClose={() => setSalvando(false)} onSave={salvarPedido} />
+      <SalvarPedido
+        open={salvando}
+        onClose={() => setSalvando(false)}
+        onSave={salvarPedido}
+      />
     </>
   );
 }
 
-function Chip({ active, ...p }: React.ComponentProps<"button"> & { active: boolean }) {
+function Chip({
+  active,
+  ...p
+}: React.ComponentProps<"button"> & { active: boolean }) {
   return (
     <button
       type="button"
       className={cx(
         "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-4 text-sm font-semibold transition",
-        active ? "border-gold bg-gold-soft text-gold-ink" : "border-line bg-card text-muted hover:text-ink",
+        active
+          ? "border-gold bg-gold-soft text-gold-ink"
+          : "border-line bg-card text-muted hover:text-ink",
       )}
       {...p}
     />
@@ -499,7 +648,13 @@ function Chip({ active, ...p }: React.ComponentProps<"button"> & { active: boole
 }
 
 // key={valor} no uso: remonta quando o preço muda no servidor
-function PrecoInput({ valor, onCommit }: { valor: number; onCommit: (v: number) => void }) {
+function PrecoInput({
+  valor,
+  onCommit,
+}: {
+  valor: number;
+  onCommit: (v: number) => void;
+}) {
   const [v, setV] = useState(String(valor));
   const commit = () => {
     const n = Math.round(Number(v.replace(",", ".")) * 100) / 100;
@@ -535,15 +690,24 @@ function SalvarPedido({
         onSubmit={(e) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);
-          onSave(String(f.get("nome")).trim(), String(f.get("descricao") ?? "").trim());
+          onSave(String(f.get("nome") ?? ""), String(f.get("descricao") ?? ""));
         }}
       >
-        <p className="text-sm text-muted">O pedido fica guardado para este vendedor e pode ser cobrado depois.</p>
+        <p className="text-sm text-muted">
+          O pedido fica guardado para este vendedor e pode ser cobrado depois.
+        </p>
         <Field label="Nome">
-          <Input name="nome" required autoFocus placeholder="Ex.: Cliente Maria" />
+          <Input
+            name="nome"
+            required
+            minLength={3}
+            maxLength={MAX_NOME}
+            autoFocus
+            placeholder="Ex.: Cliente Maria"
+          />
         </Field>
         <Field label="Descrição">
-          <Textarea name="descricao" />
+          <Textarea name="descricao" maxLength={MAX_TEXTO} />
         </Field>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>

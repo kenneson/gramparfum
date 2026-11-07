@@ -22,6 +22,7 @@ export type Produto = {
   descricao: string | null;
   preco: number;
   valor_combo: number;
+  estoque_minimo: number;
   a_venda: boolean;
   ativo: boolean;
 };
@@ -32,8 +33,10 @@ export type Estoque = {
   saldo_inventario: number;
   entradas: number;
   amostras: number;
+  outras_saidas: number; // doação + estragou
   vendidos: number;
   estoque: number;
+  minimo: number;
 };
 
 export const ROLES: Record<Role, string> = {
@@ -52,34 +55,56 @@ export const FORMAS: Record<number, string> = {
 };
 
 // Login é por usuário; o Supabase Auth exige e-mail, então mapeamos para um e-mail sintético.
-export const usuarioToEmail = (usuario: string) => `${normalizarUsuario(usuario)}@gamparfum.local`;
-export const normalizarUsuario = (u: string) => u.trim().replace(/^@/, "").toLowerCase();
+export const usuarioToEmail = (usuario: string) =>
+  `${normalizarUsuario(usuario)}@gamparfum.local`;
+export const normalizarUsuario = (u: string) =>
+  u.trim().replace(/^@/, "").toLowerCase();
 
 const MOEDA: Record<Idioma, { simbolo: string; locale: string }> = {
   pt: { simbolo: "R$", locale: "pt-BR" },
   es: { simbolo: "Bs.", locale: "es-BO" },
 };
 
-export function money(v: number | string | null | undefined, idioma: Idioma = "pt") {
+export function money(
+  v: number | string | null | undefined,
+  idioma: Idioma = "pt",
+) {
   const { simbolo, locale } = MOEDA[idioma];
   return `${simbolo} ${Number(v ?? 0).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export const num = (v: number | string | null | undefined, decimals = 0) =>
-  Number(v ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  Number(v ?? 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
 
 export const TZ = "America/Sao_Paulo";
 
 export const dataHora = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString("pt-BR", { timeZone: TZ, dateStyle: "short", timeStyle: "short" }) : "—";
+  iso
+    ? new Date(iso).toLocaleString("pt-BR", {
+        timeZone: TZ,
+        dateStyle: "short",
+        timeStyle: "short",
+      })
+    : "—";
 
-export const hojeISO = () => new Date().toLocaleDateString("sv-SE", { timeZone: TZ });
+export const hojeISO = () =>
+  new Date().toLocaleDateString("sv-SE", { timeZone: TZ });
 
 // Dia inteiro (AAAA-MM-DD) no fuso de São Paulo, para filtrar timestamptz
-export const intervaloDia = (dia: string) => ({ de: `${dia}T00:00:00-03:00`, ate: `${dia}T23:59:59.999-03:00` });
+export const intervaloDia = (dia: string) => ({
+  de: `${dia}T00:00:00-03:00`,
+  ate: `${dia}T23:59:59.999-03:00`,
+});
 
 export const hora = (iso: string) =>
-  new Date(iso).toLocaleTimeString("pt-BR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+  new Date(iso).toLocaleTimeString("pt-BR", {
+    timeZone: TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
 export function diasDesde(iso: string | null) {
   if (!iso) return null;

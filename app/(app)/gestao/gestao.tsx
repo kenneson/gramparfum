@@ -6,7 +6,16 @@ import { KeyRound, Pencil, Plus, Store } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useData } from "@/lib/use-data";
-import { ROLES, money, num, type Idioma, type Loja, type Produto, type Profile, type Role } from "@/lib/domain";
+import {
+  ROLES,
+  money,
+  num,
+  type Idioma,
+  type Loja,
+  type Produto,
+  type Profile,
+  type Role,
+} from "@/lib/domain";
 import {
   Avatar,
   Badge,
@@ -23,7 +32,14 @@ import {
   Toggle,
 } from "@/components/ui";
 import { SemLoja, useApp } from "@/components/shell";
-import { atualizarAcesso, atualizarDados, atualizarRole, criarPessoa, definirAtivo, definirLoja } from "./actions";
+import {
+  atualizarAcesso,
+  atualizarDados,
+  atualizarRole,
+  criarPessoa,
+  definirAtivo,
+  definirLoja,
+} from "./actions";
 
 type Aba = "equipe" | "produtos" | "lojas";
 const supabase = createClient();
@@ -41,7 +57,10 @@ export function Gestao() {
 
   return (
     <>
-      <PageHeader title="Gestão" actions={<Tabs value={aba} onChange={setAba} items={abas} />} />
+      <PageHeader
+        title="Gestão"
+        actions={<Tabs value={aba} onChange={setAba} items={abas} />}
+      />
       {aba === "equipe" && <Equipe />}
       {aba === "produtos" && <Produtos />}
       {aba === "lojas" && <Lojas />}
@@ -67,16 +86,29 @@ function Equipe() {
       .eq("ativo", ativos === "1")
       .order("nome");
     if (profile.role < 200) {
-      const { data: m } = await supabase.from("loja_membros").select("user_id").eq("loja_id", lojaId!);
+      const { data: m } = await supabase
+        .from("loja_membros")
+        .select("user_id")
+        .eq("loja_id", lojaId!);
       q = q.in(
         "id",
         (m ?? []).map((r) => r.user_id),
       );
     }
     const { data } = await q;
-    return ((data ?? []) as (Profile & { loja_membros: { loja_id: number; ativo: boolean }[] })[])
-      .filter((p) => profile.role === 200 || p.role < profile.role || p.id === profile.id)
-      .map((p): Pessoa => ({ ...p, lojas: p.loja_membros.filter((m) => m.ativo).map((m) => m.loja_id) }));
+    return (
+      (data ?? []) as (Profile & {
+        loja_membros: { loja_id: number; ativo: boolean }[];
+      })[]
+    )
+      .filter(
+        (p) =>
+          profile.role === 200 || p.role < profile.role || p.id === profile.id,
+      )
+      .map((p): Pessoa => ({
+        ...p,
+        lojas: p.loja_membros.filter((m) => m.ativo).map((m) => m.loja_id),
+      }));
   }, [ativos, lojaId, profile]);
   const [data, carregar] = useData(buscar);
   const pessoas = data ?? [];
@@ -122,7 +154,9 @@ function Equipe() {
                   <Badge tone={p.acesso_habilitado ? "ok" : "neutral"}>
                     {p.acesso_habilitado ? "Acesso ON" : "Sem acesso"}
                   </Badge>
-                  {p.lojas.map((l) => nomeLoja(l) && <Badge key={l}>{nomeLoja(l)}</Badge>)}
+                  {p.lojas.map(
+                    (l) => nomeLoja(l) && <Badge key={l}>{nomeLoja(l)}</Badge>,
+                  )}
                 </div>
               </div>
               <Pencil size={16} className="mt-1 shrink-0 text-muted" />
@@ -131,10 +165,19 @@ function Equipe() {
         </div>
       )}
 
-      <Modal open={!!sel} onClose={() => setAberta(null)} title={sel?.nome ?? ""} wide>
+      <Modal
+        open={!!sel}
+        onClose={() => setAberta(null)}
+        title={sel?.nome ?? ""}
+        wide
+      >
         {sel && <EditarPessoa p={sel} onChange={carregar} />}
       </Modal>
-      <NovaPessoa open={novo} onClose={() => setNovo(false)} onDone={carregar} />
+      <NovaPessoa
+        open={novo}
+        onClose={() => setNovo(false)}
+        onDone={carregar}
+      />
     </>
   );
 }
@@ -156,7 +199,9 @@ function useAcao(onChange: () => void) {
 function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
     <section className="border-t border-line pt-5 first:border-0 first:pt-0">
-      <h3 className="mb-3 text-xs font-bold tracking-wide text-muted uppercase">{titulo}</h3>
+      <h3 className="mb-3 text-xs font-bold tracking-wide text-muted uppercase">
+        {titulo}
+      </h3>
       {children}
     </section>
   );
@@ -165,8 +210,16 @@ function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
 function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
   const { profile, lojas } = useApp();
   const [pending, exec] = useAcao(onChange);
-  const [dados, setDados] = useState({ nome: p.nome, descricao: p.descricao ?? "", idioma: p.idioma });
-  const [acesso, setAcesso] = useState({ usuario: p.usuario, senha: "", habilitado: p.acesso_habilitado });
+  const [dados, setDados] = useState({
+    nome: p.nome,
+    descricao: p.descricao ?? "",
+    idioma: p.idioma,
+  });
+  const [acesso, setAcesso] = useState({
+    usuario: p.usuario,
+    senha: "",
+    habilitado: p.acesso_habilitado,
+  });
   const proprio = p.id === profile.id;
   const rolesPermitidos = (Object.keys(ROLES).map(Number) as Role[]).filter(
     (r) => profile.role === 200 || r < profile.role,
@@ -177,22 +230,37 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
       <Secao titulo="Dados pessoais">
         <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
           <Field label="Nome">
-            <Input value={dados.nome} onChange={(e) => setDados({ ...dados, nome: e.target.value })} />
+            <Input
+              value={dados.nome}
+              onChange={(e) => setDados({ ...dados, nome: e.target.value })}
+            />
           </Field>
           <Field label="Idioma">
-            <Select value={dados.idioma} onChange={(e) => setDados({ ...dados, idioma: e.target.value as Idioma })}>
+            <Select
+              value={dados.idioma}
+              onChange={(e) =>
+                setDados({ ...dados, idioma: e.target.value as Idioma })
+              }
+            >
               <option value="pt">Português</option>
               <option value="es">Español</option>
             </Select>
           </Field>
           <Field label="Comentário" className="sm:col-span-2">
-            <Textarea value={dados.descricao} onChange={(e) => setDados({ ...dados, descricao: e.target.value })} />
+            <Textarea
+              value={dados.descricao}
+              onChange={(e) =>
+                setDados({ ...dados, descricao: e.target.value })
+              }
+            />
           </Field>
         </div>
         <Button
           className="mt-3"
           disabled={pending}
-          onClick={() => exec(() => atualizarDados(p.id, dados), "Dados salvos")}
+          onClick={() =>
+            exec(() => atualizarDados(p.id, dados), "Dados salvos")
+          }
         >
           Salvar dados
         </Button>
@@ -204,7 +272,9 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
             <Input
               value={acesso.usuario}
               autoCapitalize="none"
-              onChange={(e) => setAcesso({ ...acesso, usuario: e.target.value })}
+              onChange={(e) =>
+                setAcesso({ ...acesso, usuario: e.target.value })
+              }
             />
           </Field>
           <Field label="Nova senha">
@@ -224,7 +294,12 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
             disabled={proprio}
             onChange={(habilitado) => setAcesso({ ...acesso, habilitado })}
           />
-          <Button disabled={pending} onClick={() => exec(() => atualizarAcesso(p.id, acesso), "Acesso atualizado")}>
+          <Button
+            disabled={pending}
+            onClick={() =>
+              exec(() => atualizarAcesso(p.id, acesso), "Acesso atualizado")
+            }
+          >
             <KeyRound size={16} /> Salvar acesso
           </Button>
         </div>
@@ -236,7 +311,12 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
             <Select
               value={p.role}
               disabled={pending || profile.role < 100}
-              onChange={(e) => exec(() => atualizarRole(p.id, Number(e.target.value) as Role), "Perfil alterado")}
+              onChange={(e) =>
+                exec(
+                  () => atualizarRole(p.id, Number(e.target.value) as Role),
+                  "Perfil alterado",
+                )
+              }
             >
               {rolesPermitidos.map((r) => (
                 <option key={r} value={r}>
@@ -244,7 +324,11 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
                 </option>
               ))}
             </Select>
-            {profile.role < 100 && <p className="mt-2 text-xs text-muted">Só administradores alteram perfis.</p>}
+            {profile.role < 100 && (
+              <p className="mt-2 text-xs text-muted">
+                Só administradores alteram perfis.
+              </p>
+            )}
           </Secao>
 
           <Secao titulo="Lojas">
@@ -256,7 +340,10 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
                   disabled={pending}
                   checked={p.lojas.includes(l.id)}
                   onChange={(v) =>
-                    exec(() => definirLoja(p.id, l.id, v), v ? `Associado a ${l.nome}` : `Removido de ${l.nome}`)
+                    exec(
+                      () => definirLoja(p.id, l.id, v),
+                      v ? `Associado a ${l.nome}` : `Removido de ${l.nome}`,
+                    )
                   }
                 />
               ))}
@@ -268,7 +355,12 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
               label={p.ativo ? "Ativo" : "Fora da empresa"}
               checked={p.ativo}
               disabled={pending}
-              onChange={(v) => exec(() => definirAtivo(p.id, v), v ? "Pessoa reativada" : "Pessoa desativada")}
+              onChange={(v) =>
+                exec(
+                  () => definirAtivo(p.id, v),
+                  v ? "Pessoa reativada" : "Pessoa desativada",
+                )
+              }
             />
           </Secao>
         </>
@@ -277,7 +369,15 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
   );
 }
 
-function NovaPessoa({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+function NovaPessoa({
+  open,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const { lojaId, lojas } = useApp();
   const [pending, start] = useTransition();
   return (
@@ -307,15 +407,21 @@ function NovaPessoa({ open, onClose, onDone }: { open: boolean; onClose: () => v
         }}
       >
         <p className="text-sm text-muted">
-          Entra como vendedor na loja <b>{lojas.find((l) => l.id === lojaId)?.nome}</b>. Sem senha, a pessoa aparece no
-          caixa mas não entra no sistema.
+          Entra como vendedor na loja{" "}
+          <b>{lojas.find((l) => l.id === lojaId)?.nome}</b>. Sem senha, a pessoa
+          aparece no caixa mas não entra no sistema.
         </p>
         <Field label="Nome">
           <Input name="nome" required autoFocus />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Usuário">
-            <Input name="usuario" required autoCapitalize="none" placeholder="maria.silva" />
+            <Input
+              name="usuario"
+              required
+              autoCapitalize="none"
+              placeholder="maria.silva"
+            />
           </Field>
           <Field label="Idioma">
             <Select name="idioma" defaultValue="pt">
@@ -325,7 +431,12 @@ function NovaPessoa({ open, onClose, onDone }: { open: boolean; onClose: () => v
           </Field>
         </div>
         <Field label="Senha (opcional)">
-          <Input name="senha" type="password" autoComplete="new-password" minLength={6} />
+          <Input
+            name="senha"
+            type="password"
+            autoComplete="new-password"
+            minLength={6}
+          />
         </Field>
         <Field label="Comentário">
           <Textarea name="descricao" />
@@ -352,7 +463,12 @@ function Produtos() {
 
   const buscar = useCallback(async () => {
     if (!lojaId) return [];
-    const { data } = await supabase.from("produtos").select("*").eq("loja_id", lojaId).eq("ativo", true).order("nome");
+    const { data } = await supabase
+      .from("produtos")
+      .select("*")
+      .eq("loja_id", lojaId)
+      .eq("ativo", true)
+      .order("nome");
     return (data ?? []) as Produto[];
   }, [lojaId]);
   const [data, carregar] = useData(buscar);
@@ -363,7 +479,9 @@ function Produtos() {
   return (
     <>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <p className="text-sm text-muted">{produtos.length} produtos nesta loja</p>
+        <p className="text-sm text-muted">
+          {produtos.length} produtos nesta loja
+        </p>
         {podeEditar && (
           <Button onClick={() => setEditando("novo")}>
             <Plus size={16} /> Novo produto
@@ -375,20 +493,36 @@ function Produtos() {
       ) : (
         <Card className="divide-y divide-line">
           {produtos.map((p) => (
-            <div key={p.id} className="flex items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-5">
+            <div
+              key={p.id}
+              className="flex items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-5"
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate font-semibold">{p.nome}</span>
                   {!p.a_venda && <Badge>fora de venda</Badge>}
                 </div>
-                {p.descricao && <div className="truncate text-xs text-muted">{p.descricao}</div>}
+                {p.descricao && (
+                  <div className="truncate text-xs text-muted">
+                    {p.descricao}
+                  </div>
+                )}
               </div>
               <div className="text-right">
-                <div className="num font-display text-xl font-semibold">{money(p.preco, idioma)}</div>
-                <div className="num text-xs text-gold-ink">combo {num(p.valor_combo, 2)}</div>
+                <div className="num font-display text-xl font-semibold">
+                  {money(p.preco, idioma)}
+                </div>
+                <div className="num text-xs text-gold-ink">
+                  combo {num(p.valor_combo, 2)}
+                </div>
               </div>
               {podeEditar && (
-                <Button variant="ghost" size="sm" aria-label="Editar" onClick={() => setEditando(p)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Editar"
+                  onClick={() => setEditando(p)}
+                >
                   <Pencil size={16} />
                 </Button>
               )}
@@ -430,6 +564,7 @@ function FormProduto({
       descricao: String(f.get("descricao")).trim() || null,
       preco: Number(f.get("preco")),
       valor_combo: Number(f.get("valor_combo") || 0),
+      estoque_minimo: Number(f.get("estoque_minimo") || 0),
       a_venda: aVenda,
       ...(remover && { ativo: false }),
     };
@@ -479,8 +614,22 @@ function FormProduto({
               inputMode="decimal"
             />
           </Field>
+          <Field label="Estoque mínimo">
+            <Input
+              name="estoque_minimo"
+              type="number"
+              step="1"
+              min="0"
+              defaultValue={p?.estoque_minimo ?? 0}
+              inputMode="numeric"
+            />
+          </Field>
         </div>
-        <Toggle label="Disponível no caixa" checked={aVenda} onChange={setAVenda} />
+        <Toggle
+          label="Disponível no caixa"
+          checked={aVenda}
+          onChange={setAVenda}
+        />
         <div className="flex items-center justify-between gap-2 pt-2">
           {p ? (
             <Button
@@ -513,13 +662,19 @@ function Lojas() {
   const [nome, setNome] = useState("");
 
   const buscar = useCallback(async () => {
-    const { data } = await supabase.from("lojas").select("id, nome, ativo").order("nome");
+    const { data } = await supabase
+      .from("lojas")
+      .select("id, nome, ativo")
+      .order("nome");
     return (data ?? []) as Loja[];
   }, []);
   const [data, carregar] = useData(buscar);
   const lojas = data ?? [];
 
-  async function mutar(q: PromiseLike<{ error: { message: string } | null }>, ok: string) {
+  async function mutar(
+    q: PromiseLike<{ error: { message: string } | null }>,
+    ok: string,
+  ) {
     const { error } = await q;
     if (error) return toast.error(error.message);
     toast.success(ok);
@@ -534,11 +689,18 @@ function Lojas() {
         onSubmit={(e) => {
           e.preventDefault();
           if (!nome.trim()) return;
-          mutar(supabase.from("lojas").insert({ nome: nome.trim() }), "Loja criada");
+          mutar(
+            supabase.from("lojas").insert({ nome: nome.trim() }),
+            "Loja criada",
+          );
           setNome("");
         }}
       >
-        <Input placeholder="Nome da nova loja" value={nome} onChange={(e) => setNome(e.target.value)} />
+        <Input
+          placeholder="Nome da nova loja"
+          value={nome}
+          onChange={(e) => setNome(e.target.value)}
+        />
         <Button type="submit" size="lg">
           <Plus size={16} /> Criar
         </Button>
@@ -551,11 +713,20 @@ function Lojas() {
             <Toggle
               label={l.ativo ? "Ativa" : "Inativa"}
               checked={l.ativo}
-              onChange={(ativo) => mutar(supabase.from("lojas").update({ ativo }).eq("id", l.id), "Loja atualizada")}
+              onChange={(ativo) =>
+                mutar(
+                  supabase.from("lojas").update({ ativo }).eq("id", l.id),
+                  "Loja atualizada",
+                )
+              }
             />
           </div>
         ))}
-        {lojas.length === 0 && <div className="px-5 py-8 text-center text-sm text-muted">Crie a primeira loja.</div>}
+        {lojas.length === 0 && (
+          <div className="px-5 py-8 text-center text-sm text-muted">
+            Crie a primeira loja.
+          </div>
+        )}
       </Card>
     </div>
   );

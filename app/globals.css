@@ -34,6 +34,10 @@
   --ease-out-soft: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* celular deitado (pouca altura): trilho lateral em vez da barra de baixo, para sobrar altura para o conteúdo.
+   Até 1279px: no desktop (xl) a barra lateral completa continua valendo mesmo em janela baixa. */
+@custom-variant deitado (@media (orientation: landscape) and (max-height: 500px) and (max-width: 1279px));
+
 /* títulos/valores: mesma família, tracking apertado (utilitário tracking-* ainda vence) */
 @layer base {
   .font-display {

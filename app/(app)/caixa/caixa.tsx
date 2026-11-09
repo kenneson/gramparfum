@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Bookmark,
   Minus,
   Plus,
+  Receipt,
   Search,
   ShoppingBag,
   Trash2,
+  UserRoundPen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
@@ -90,7 +93,18 @@ export function Caixa() {
 
   return (
     <>
-      <PageHeader title={t.caixa} />
+      <PageHeader
+        title={t.caixa}
+        actions={
+          <Link
+            href="/relatorios"
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-semibold transition hover:border-ink/30 active:scale-[0.97]"
+          >
+            <Receipt size={16} className="text-gold" /> Vendas de hoje
+            <span className="hidden text-muted sm:inline">· anular ou trocar vendedor</span>
+          </Link>
+        }
+      />
 
       {/* Vendedores */}
       <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:px-0">
@@ -126,6 +140,10 @@ export function Caixa() {
           estoque={loja.estoque}
           estoqueVisivel={profile.role >= 100}
           onVendido={recarregarLoja}
+          outrosVendedores={
+            profile.role >= 90 ? vendedores.filter((v) => v.id !== vendedorId) : []
+          }
+          onTransferido={setEscolhido}
         />
       )}
     </>
@@ -140,6 +158,8 @@ function Venda({
   estoque,
   estoqueVisivel,
   onVendido,
+  outrosVendedores,
+  onTransferido,
 }: {
   lojaId: number;
   vendedorId: string;
@@ -147,6 +167,8 @@ function Venda({
   estoque: Map<number, number>;
   estoqueVisivel: boolean;
   onVendido: () => void;
+  outrosVendedores: Vendedor[]; // vazio = sem permissão para trocar (vendedor)
+  onTransferido: (vendedorId: string) => void;
 }) {
   const { idioma, t } = useApp();
   const [escolhido, setEscolhido] = useState<number | null>(null); // null = carrinho atual
@@ -154,6 +176,7 @@ function Venda({
   const [cobrando, setCobrando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [verCarrinho, setVerCarrinho] = useState(false); // sheet do carrinho no celular
+  const [trocando, setTrocando] = useState(false);
 
   const buscarPedidos = useCallback(async () => {
     const { data } = await supabase
@@ -320,6 +343,22 @@ function Venda({
     recarregarPedidos();
   }
 
+  // Pedido ainda não pago passa para outro vendedor (o carrinho junta com o carrinho dele, se houver)
+  async function passarPara(id: string) {
+    if (!pedidoAtivo) return;
+    const { error } = await supabase.rpc("trocar_vendedor_pedido", {
+      p_pedido_id: pedidoAtivo,
+      p_vendedor_id: id,
+    });
+    if (error)
+      return toast.error("Vendedor não alterado", { description: error.message });
+    toast.success(
+      `${pedidoSel?.nome ?? "Pedido"} passado para ${outrosVendedores.find((v) => v.id === id)?.nome}`,
+    );
+    setTrocando(false);
+    onTransferido(id);
+  }
+
   function vendaFinalizada(vendaId: number) {
     setCobrando(false);
     toast.success(`Venda nº ${String(vendaId).padStart(6, "0")} registrada`);
@@ -400,6 +439,18 @@ function Venda({
 
   const rodape = (
     <div className="border-t border-line px-5 py-4">
+      {outrosVendedores.length > 0 && itens.length > 0 && (
+        <Button
+          variant="outline"
+          className="mb-3 w-full"
+          onClick={() => {
+            setVerCarrinho(false);
+            setTrocando(true);
+          }}
+        >
+          <UserRoundPen size={16} /> Trocar vendedor deste pedido
+        </Button>
+      )}
       <div className="flex items-baseline justify-between">
         <span className="text-sm text-muted">{t.total}</span>
         <span className="num font-display text-4xl font-bold">
@@ -558,7 +609,7 @@ function Venda({
       {itens.length > 0 && (
         <>
           <div aria-hidden className="h-20 lg:hidden" />
-          <div className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-[calc(1rem+env(safe-area-inset-bottom))] md:left-[6.25rem] z-20 flex items-center gap-2 rounded-2xl bg-ink p-2 text-white shadow-lift ring-1 ring-white/10 lg:hidden">
+          <div className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] md:bottom-[calc(1rem+env(safe-area-inset-bottom))] md:left-[calc(6.25rem+env(safe-area-inset-left))] deitado:bottom-[calc(0.75rem+env(safe-area-inset-bottom))] deitado:left-[calc(6.25rem+env(safe-area-inset-left))] z-20 flex items-center gap-2 rounded-2xl bg-ink p-2 text-white shadow-lift ring-1 ring-white/10 lg:hidden">
             <button
               type="button"
               onClick={() => setVerCarrinho(true)}
@@ -620,6 +671,29 @@ function Venda({
           }}
         />
       )}
+      <Modal
+        open={trocando}
+        onClose={() => setTrocando(false)}
+        title="Trocar vendedor"
+      >
+        <p className="mb-4 text-sm text-muted">
+          Escolha quem fica com {pedidoSel ? `“${pedidoSel.nome}”` : "este pedido"}. Os
+          produtos vão juntos e a venda conta para essa pessoa.
+        </p>
+        <div className="flex flex-col gap-2">
+          {outrosVendedores.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => passarPara(v.id)}
+              className="flex items-center gap-3 rounded-2xl border border-line bg-card p-2.5 text-left font-semibold transition hover:border-gold active:scale-[0.98] active:bg-gold-soft/40"
+            >
+              <Avatar nome={v.nome} size={40} />
+              {v.nome}
+            </button>
+          ))}
+        </div>
+      </Modal>
       <SalvarPedido
         open={salvando}
         onClose={() => setSalvando(false)}

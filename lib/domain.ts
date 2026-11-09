@@ -125,6 +125,7 @@ const T = {
   pt: {
     caixa: "Caixa",
     relatorios: "Relatórios",
+    ranking: "Ranking",
     gestao: "Gestão",
     inventario: "Inventário",
     historico: "Histórico",
@@ -151,6 +152,7 @@ const T = {
   es: {
     caixa: "Caja",
     relatorios: "Informes",
+    ranking: "Ranking",
     gestao: "Gestión",
     inventario: "Inventario",
     historico: "Historial",

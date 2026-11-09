@@ -21,9 +21,9 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 
 | role | perfil | acesso |
 |---|---|---|
-| 50 | Vendedor | Caixa (só as próprias vendas), relatórios e fechamento das próprias vendas, Inventário → abrir amostras e editar as que abriu |
-| 90 | Chefe de loja | + Gestão de equipe, Histórico, editar/anular venda, trocar vendedor, editar qualquer amostra da loja |
-| 100 | Admin. geral de lojas | + faturamento, inventário completo (contagem, entradas), cria/edita produtos, altera perfis, vê estoque |
+| 50 | Vendedor | Caixa (só as próprias vendas), relatórios e fechamento das próprias vendas, anular venda com usuário e senha do chefe, Ranking, Inventário → lançar e desfazer/corrigir o que lançou |
+| 90 | Chefe de loja | + Gestão de equipe, Histórico, editar/anular venda, trocar vendedor (venda paga e pedido não pago, só ativos), desfazer/corrigir qualquer lançamento de estoque, metas dos vendedores |
+| 100 | Admin. geral de lojas | + cria lojas (vira membro), faturamento, inventário completo (contagem, entradas), cria/edita produtos, altera perfis, vê estoque |
 | 200 | Admin. do sistema | tudo, todas as lojas, cria lojas |
 
 **Faturamento só para Admin (>= 100).** Vendedor e chefe: relatório detalhado de um dia por vez; em vários dias
@@ -34,6 +34,13 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 - **Autorização no banco (RLS)**: toda tabela tem RLS; helpers em `private.*` (fora da API).
 - **Vendas só por funções auditadas**: `finalizar_venda`, `editar_venda`, `anular_venda`, `trocar_vendedor` (atômicas,
   validam permissão, gravam `eventos`). Não há policy de escrita direta nas tabelas de venda.
+- **Anulação** exige motivo e autorização de chefe+: chefe anula direto; vendedor anula com o chefe digitando usuário e
+  senha (`relatorios/actions.ts` entra como o chefe numa sessão descartável). Grava quem autorizou, quando e o motivo
+  (Histórico + lista de anuladas no Fechamento do dia); o estoque volta sozinho.
+- **Lançamentos de estoque**: `editar_movimento` corrige, desfaz (quantidade 0) e refaz (`quantidade_anterior`);
+  `desfazer_movimentos` desfaz um lançamento inteiro (botão "Desfazer" logo após confirmar). Contagem só se corrige.
+- **Ranking e metas** em combos (não em R$, para não expor faturamento): `ranking_vendedores` + tabela `metas`
+  (mínima ≤ média ≤ FULL, uma por vendedor e loja, editada por chefe+).
 - **Valores de venda só por `relatorio_vendas`**: o cliente não tem SELECT nas colunas de valor (total, preço, pagamentos);
   a função corta o faturamento conforme o perfil. Leitura direta fica só com quantidades/datas (usada no inventário).
 - **Amostras**: qualquer perfil abre (cada uma baixa 1 unidade); edição só por `editar_amostra`, que grava quem editou

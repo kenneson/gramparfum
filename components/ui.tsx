@@ -178,7 +178,8 @@ export function Tabs<T extends string>({
   return (
     <div
       role="tablist"
-      className="flex w-full gap-1 overflow-x-auto rounded-2xl border border-line/80 bg-card p-1 shadow-card [scrollbar-width:none] sm:inline-flex sm:w-auto"
+      // flex-wrap (não rolagem lateral): no celular toda aba fica à vista, quebrando linha se não couber
+      className="flex w-full flex-wrap gap-1 rounded-2xl border border-line/80 bg-card p-1 shadow-card sm:inline-flex sm:w-auto"
     >
       {items.map((it) => (
         <button

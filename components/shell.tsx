@@ -17,6 +17,7 @@ import {
   LogOut,
   ShoppingBag,
   Store,
+  Trophy,
   Users,
 } from "lucide-react";
 import { logout, setIdioma } from "@/app/actions";
@@ -77,6 +78,7 @@ export function Shell({
   const nav = [
     { href: "/caixa", label: t.caixa, icon: ShoppingBag, min: 50 },
     { href: "/relatorios", label: t.relatorios, icon: BarChart3, min: 50 },
+    { href: "/ranking", label: t.ranking, icon: Trophy, min: 50 },
     { href: "/gestao", label: t.gestao, icon: Users, min: 90 },
     { href: "/inventario", label: t.inventario, icon: Boxes, min: 50 },
     { href: "/historico", label: t.historico, icon: History, min: 90 },
@@ -113,10 +115,11 @@ export function Shell({
 
   return (
     <AppCtx.Provider value={{ profile, lojas, lojaId, idioma, t }}>
-      {/* celular: barra embaixo · tablet (md): trilho de ícones · desktop (xl): barra lateral completa */}
-      <div className="md:pl-22 xl:pl-60">
-        <aside className="fixed inset-y-0 left-0 z-30 hidden w-22 flex-col gap-5 bg-side px-2 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] text-side-text md:flex xl:w-60 xl:px-3.5">
-          <div className="flex items-center justify-center gap-3 xl:justify-start xl:px-2">
+      {/* celular: barra embaixo · celular deitado e tablet (md): trilho de ícones · desktop (xl): barra lateral completa.
+          Laterais com env(safe-area-inset-*): deitado, o notch/ilha fica de um dos lados. */}
+      <div className="pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] md:pl-[calc(5.5rem+env(safe-area-inset-left))] deitado:pl-[calc(5.5rem+env(safe-area-inset-left))] xl:pl-60">
+        <aside className="fixed inset-y-0 left-0 z-30 hidden w-[calc(5.5rem+env(safe-area-inset-left))] flex-col gap-5 overflow-y-auto bg-side pt-[max(1.25rem,env(safe-area-inset-top))] pr-2 pb-[max(1rem,env(safe-area-inset-bottom))] pl-[calc(0.5rem+env(safe-area-inset-left))] text-side-text md:flex deitado:flex deitado:gap-2 deitado:pt-2 xl:w-60 xl:px-3.5">
+          <div className="flex items-center justify-center gap-3 deitado:hidden xl:justify-start xl:px-2">
             <Image
               src="/logo.png"
               alt="GamParfum"
@@ -143,7 +146,7 @@ export function Shell({
                   href={href}
                   aria-current={active ? "page" : undefined}
                   className={cx(
-                    "flex flex-col items-center gap-1 rounded-xl py-2.5 text-[11px] font-semibold transition-colors xl:h-11 xl:flex-row xl:gap-3 xl:px-3 xl:py-0 xl:text-sm",
+                    "flex flex-col items-center gap-1 rounded-xl py-2.5 text-[11px] font-semibold transition-colors deitado:gap-0.5 deitado:py-1.5 xl:h-11 xl:flex-row xl:gap-3 xl:px-3 xl:py-0 xl:text-sm",
                     active
                       ? "bg-side-active text-white"
                       : "text-side-text hover:bg-side-2 hover:text-white",
@@ -162,7 +165,8 @@ export function Shell({
             })}
           </nav>
 
-          <div className="mt-auto flex flex-col items-center gap-2 border-t border-side-line pt-3 xl:flex-row xl:px-1">
+          {/* deitado: idioma e sair ficam no topo (sobra altura para o menu) */}
+          <div className="mt-auto flex flex-col items-center gap-2 border-t border-side-line pt-3 deitado:hidden xl:flex-row xl:px-1">
             <span title={`${profile.nome} · ${ROLES[profile.role]}`}>
               <Avatar nome={profile.nome} size={36} dark />
             </span>
@@ -189,7 +193,7 @@ export function Shell({
 
         {/* Topo (celular e tablet): loja, idioma e sair */}
         <header className="sticky top-0 z-20 border-b border-line/70 bg-paper/85 pt-[env(safe-area-inset-top)] backdrop-blur-xl backdrop-saturate-150 xl:hidden">
-          <div className="flex h-14 items-center gap-2.5 pr-[max(1rem,env(safe-area-inset-right))] pl-[max(1rem,env(safe-area-inset-left))] md:px-6">
+          <div className="flex h-14 items-center gap-2.5 px-4 md:px-6">
             <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-side md:hidden">
               <Image
                 src="/logo.png"
@@ -202,7 +206,7 @@ export function Shell({
             <div className="min-w-0 flex-1 sm:max-w-xs sm:flex-none">
               {seletorLoja(false)}
             </div>
-            <div className="ml-auto flex shrink-0 items-center md:hidden">
+            <div className="ml-auto flex shrink-0 items-center md:hidden deitado:flex">
               <IdiomaBtn idioma={idioma} onClick={trocarIdioma} light />
               <form action={logout}>
                 <button
@@ -219,7 +223,7 @@ export function Shell({
         {/* key: trocar de loja remonta a tela, zerando estado da loja anterior */}
         <main
           key={lojaId}
-          className="mx-auto max-w-[1440px] px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:pt-6 md:px-6 md:pb-10 xl:px-10 xl:pt-8"
+          className="mx-auto max-w-[1440px] px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:pt-6 md:px-6 md:pb-10 deitado:pt-4 deitado:pb-10 xl:px-10 xl:pt-8"
         >
           {children}
         </main>
@@ -227,7 +231,7 @@ export function Shell({
         {/* Navegação no celular */}
         <nav
           aria-label="Principal"
-          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden deitado:hidden"
         >
           <div className="flex px-1">
             {nav.map(({ href, label, icon: Icon }) => {

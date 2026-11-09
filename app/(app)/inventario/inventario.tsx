@@ -23,6 +23,7 @@ import {
   ShoppingBag,
   Trash2,
   Truck,
+  Redo2,
   Undo2,
   type LucideIcon,
 } from "lucide-react";
@@ -375,7 +376,7 @@ function useRascunhos(lojaId: number | null) {
     delete timers.current[tipo];
     gravar(tipo, VAZIO);
     setMapa((m) => ({ ...m, [tipo]: VAZIO }));
-    return data as number;
+    return data as number[]; // ids gravados (para o "Desfazer")
   }
 
   return { carregado: !!mapa, de, alterar, confirmar, status };
@@ -565,13 +566,7 @@ function EstoqueAba({
   );
 }
 
-type MovDetalhe = {
-  created_at: string;
-  quantidade: number;
-  tipo: Tipo | "venda";
-  comentario: string | null;
-  quem: string;
-};
+type MovDetalhe = MovEditavel & { created_at: string; quem: string };
 
 // Movimentos desde o último inventário + ajuste do estoque mínimo
 function DetalheProduto({
@@ -592,11 +587,10 @@ function DetalheProduto({
       supabase
         .from("estoque_movimentos")
         .select(
-          "created_at, quantidade, tipo, comentario, profiles!estoque_movimentos_created_by_fkey(nome)",
+          "id, created_at, quantidade, quantidade_anterior, tipo, comentario, profiles!estoque_movimentos_created_by_fkey(nome)",
         )
         .eq("produto_id", linha.produto_id)
         .neq("tipo", "inventario")
-        .gt("quantidade", 0)
         .gt("created_at", desde),
       supabase
         .from("venda_itens")
@@ -617,9 +611,11 @@ function DetalheProduto({
           quantidade: number;
           vendas: { created_at: string; vendedor: { nome: string } };
         }[]
-      ).map((r) => ({
+      ).map((r, i) => ({
+        id: -1 - i, // vendas não são editáveis aqui
         created_at: r.vendas.created_at,
         quantidade: r.quantidade,
+        quantidade_anterior: null,
         tipo: "venda" as const,
         comentario: null,
         quem: r.vendas.vendedor.nome,
@@ -709,25 +705,36 @@ function DetalheProduto({
           <h3 className="mb-2 text-xs font-bold tracking-wide text-muted uppercase">
             Desde a última contagem
           </h3>
+          <p className="mb-2 text-xs text-muted">
+            Lançou errado? Use <b>Desfazer</b> no lançamento; o estoque volta na hora.
+          </p>
           {!movs ? (
             <p className="text-sm text-muted">Carregando…</p>
           ) : movs.length === 0 ? (
             <p className="text-sm text-muted">Nenhum movimento.</p>
           ) : (
             <ul className="divide-y divide-line">
-              {movs.map((m, i) => (
-                <li key={i} className="flex items-center gap-3 py-2.5 text-sm">
+              {movs.map((m) => (
+                <li
+                  key={`${m.tipo}-${m.id}`}
+                  className="flex items-start gap-3 py-2.5 text-sm"
+                >
                   <IconeTipo tipo={m.tipo} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate">
+                    <div className={cx("truncate", m.quantidade === 0 && "text-muted line-through")}>
                       {TIPOS[m.tipo].nome} · {m.quem}
                     </div>
                     <div className="text-xs text-muted">
                       {dataHora(m.created_at)}
                       {m.comentario && ` · ${m.comentario}`}
                     </div>
+                    {m.tipo !== "venda" && <AcoesMov m={m} onFeito={onSaved} />}
                   </div>
-                  <Qtd tipo={m.tipo} quantidade={m.quantidade} />
+                  {m.quantidade === 0 ? (
+                    <Badge tone="danger">desfeito</Badge>
+                  ) : (
+                    <Qtd tipo={m.tipo} quantidade={m.quantidade} />
+                  )}
                 </li>
               ))}
             </ul>
@@ -771,6 +778,79 @@ function Qtd({
       {s > 0 ? "+" : s < 0 ? "−" : "= "}
       {num(quantidade)}
     </span>
+  );
+}
+
+// Desfaz o lançamento inteiro (todos os produtos) numa transação
+async function desfazerLancamento(ids: number[], onSaved: () => void) {
+  const { error } = await supabase.rpc("desfazer_movimentos", { p_ids: ids });
+  if (error)
+    return toast.error("Não foi possível desfazer", { description: error.message });
+  toast.success("Lançamento desfeito", {
+    description: "O estoque voltou como estava. Dá para refazer em Inventário → Histórico.",
+  });
+  onSaved();
+}
+
+// Desfazer (quantidade 0) e refazer (volta à quantidade anterior) de um lançamento; contagem só se corrige
+type MovEditavel = {
+  id: number;
+  tipo: Tipo | "venda";
+  quantidade: number;
+  quantidade_anterior: number | null;
+  comentario: string | null;
+};
+function AcoesMov({
+  m,
+  onCorrigir,
+  onFeito,
+}: {
+  m: MovEditavel;
+  onCorrigir?: () => void;
+  onFeito: () => void;
+}) {
+  const [enviando, setEnviando] = useState(false);
+  async function mudar(quantidade: number, ok: string) {
+    setEnviando(true);
+    const { error } = await supabase.rpc("editar_movimento", {
+      p_id: m.id,
+      p_quantidade: quantidade,
+      p_comentario: m.comentario,
+    });
+    setEnviando(false);
+    if (error) return toast.error("Não alterado", { description: error.message });
+    toast.success(ok);
+    onFeito();
+  }
+  const contagem = m.tipo === "inventario";
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {!contagem && m.quantidade > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={enviando}
+          onClick={() => mudar(0, "Desfeito — o estoque voltou como estava")}
+        >
+          <Undo2 size={14} /> Desfazer
+        </Button>
+      )}
+      {!contagem && m.quantidade === 0 && !!m.quantidade_anterior && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={enviando}
+          onClick={() => mudar(m.quantidade_anterior!, "Refeito")}
+        >
+          <Redo2 size={14} /> Refazer ({m.quantidade_anterior})
+        </Button>
+      )}
+      {onCorrigir && (
+        <Button variant="outline" size="sm" disabled={enviando} onClick={onCorrigir}>
+          <Pencil size={14} /> Corrigir quantidade
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -956,12 +1036,15 @@ function LancamentoForm({
 
   async function confirmar() {
     setEnviando(true);
-    const n = await rascunhos.confirmar(tipo, itens, r.comentario);
+    const ids = await rascunhos.confirmar(tipo, itens, r.comentario);
     setEnviando(false);
-    if (n === null) return;
+    if (ids === null) return;
+    const n = ids.length;
     setRevisar(false);
     toast.success(`${T.nome} registrada`, {
-      description: `${n} produto${n > 1 ? "s" : ""} · ${unidades} unidade${unidades > 1 ? "s" : ""} ${T.sinal > 0 ? "entraram no" : "saíram do"} estoque`,
+      description: `${n} produto${n > 1 ? "s" : ""} · ${unidades} unidade${unidades > 1 ? "s" : ""} ${T.sinal > 0 ? "entraram no" : "saíram do"} estoque. Errou? Toque em Desfazer.`,
+      duration: 15_000,
+      action: { label: "Desfazer", onClick: () => desfazerLancamento(ids, onSaved) },
     });
     onSaved();
   }
@@ -1145,7 +1228,7 @@ function BarraCelular({
   return (
     <>
       <div aria-hidden className="h-20 lg:hidden" />
-      <div className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-[calc(1rem+env(safe-area-inset-bottom))] md:left-[6.25rem] z-20 flex items-center gap-2 rounded-2xl bg-ink p-2 pl-4 text-white shadow-lift ring-1 ring-white/10 lg:hidden">
+      <div className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] md:bottom-[calc(1rem+env(safe-area-inset-bottom))] md:left-[calc(6.25rem+env(safe-area-inset-left))] deitado:bottom-[calc(0.75rem+env(safe-area-inset-bottom))] deitado:left-[calc(6.25rem+env(safe-area-inset-left))] z-20 flex items-center gap-2 rounded-2xl bg-ink p-2 pl-4 text-white shadow-lift ring-1 ring-white/10 lg:hidden">
         <span className="min-w-0 flex-1">
           <span className="block text-[11px] text-white/60">{titulo}</span>
           <span className="num block truncate font-display text-xl leading-tight font-bold">
@@ -1275,9 +1358,9 @@ function ContagemForm({
     )
       return;
     setEnviando(true);
-    const n = await rascunhos.confirmar("inventario", itens, r.comentario);
+    const ids = await rascunhos.confirmar("inventario", itens, r.comentario);
     setEnviando(false);
-    if (n === null) return;
+    if (ids === null) return;
     toast.success("Contagem registrada", {
       description: verEstoque
         ? difs
@@ -1453,6 +1536,7 @@ function ContagemForm({
 
 type Mov = Amostra & {
   tipo: Tipo | "venda";
+  quantidade_anterior: number | null;
   saldo_anterior: number | null;
   entradas: number | null;
   saidas: number | null;
@@ -1482,7 +1566,7 @@ function Historico({ onSaved }: { onSaved: () => void }) {
       supabase
         .from("estoque_movimentos")
         .select(
-          `id, produto_id, tipo, quantidade, comentario, created_at, created_by, editado_em,
+          `id, produto_id, tipo, quantidade, quantidade_anterior, comentario, created_at, created_by, editado_em,
            saldo_anterior, entradas, saidas,
            produtos!inner(nome, loja_id),
            abriu:profiles!estoque_movimentos_created_by_fkey(nome),
@@ -1525,6 +1609,7 @@ function Historico({ onSaved }: { onSaved: () => void }) {
       produtos: r.produtos,
       abriu: r.vendas.vendedor,
       editou: null,
+      quantidade_anterior: null,
       saldo_anterior: null,
       entradas: null,
       saidas: null,
@@ -1550,8 +1635,9 @@ function Historico({ onSaved }: { onSaved: () => void }) {
             ? TIPOS[m.tipo].sinal < 0
             : m.tipo === filtro)),
   );
+  // vendedor altera o que lançou; chefe+ qualquer lançamento. Venda se anula em Relatórios.
   const podeEditar = (m: Mov) =>
-    m.tipo === "amostra" && (profile.role >= 90 || m.created_by === profile.id);
+    m.tipo !== "venda" && (profile.role >= 90 || m.created_by === profile.id);
 
   // agrupa por dia (lista já vem ordenada)
   const grupos: { dia: string; movs: Mov[] }[] = [];
@@ -1643,7 +1729,18 @@ function Historico({ onSaved }: { onSaved: () => void }) {
                   <LinhaHistorico
                     key={`${m.tipo}-${m.id}`}
                     m={m}
-                    onEditar={podeEditar(m) ? () => setEditando(m) : undefined}
+                    acoes={
+                      podeEditar(m) && (
+                        <AcoesMov
+                          m={m}
+                          onCorrigir={() => setEditando(m)}
+                          onFeito={() => {
+                            carregar();
+                            onSaved();
+                          }}
+                        />
+                      )
+                    }
                   />
                 ))}
               </Card>
@@ -1653,9 +1750,9 @@ function Historico({ onSaved }: { onSaved: () => void }) {
       )}
 
       {editando && (
-        <EditarAmostra
+        <EditarMovimento
           key={editando.id}
-          amostra={editando}
+          mov={editando}
           onClose={() => setEditando(null)}
           onSaved={() => {
             setEditando(null);
@@ -1668,31 +1765,33 @@ function Historico({ onSaved }: { onSaved: () => void }) {
   );
 }
 
-function LinhaHistorico({ m, onEditar }: { m: Mov; onEditar?: () => void }) {
+function LinhaHistorico({ m, acoes }: { m: Mov; acoes?: ReactNode }) {
   const cancelada = m.tipo !== "inventario" && m.quantidade === 0;
   const dif = m.tipo === "inventario" ? m.quantidade - esperadoInv(m) : 0;
   return (
     <div
       className={cx(
-        "flex items-center gap-3 px-4 py-3 sm:px-5",
-        cancelada && "opacity-55",
+        "flex items-start gap-3 px-4 py-3 sm:px-5",
       )}
     >
       <IconeTipo tipo={m.tipo} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold">{m.produtos.nome}</div>
+        <div className={cx("truncate text-sm font-semibold", cancelada && "text-muted line-through")}>
+          {m.produtos.nome}
+        </div>
         <div className="text-xs text-muted">
           {TIPOS[m.tipo].nome} · {m.abriu?.nome ?? "—"} · {hora(m.created_at)}
           {m.comentario && ` · ${m.comentario}`}
         </div>
         {m.editado_em && (
           <div className="text-[11px] text-gold-ink">
-            editada por {m.editou?.nome ?? "—"} · {dataHora(m.editado_em)}
+            alterado por {m.editou?.nome ?? "—"} · {dataHora(m.editado_em)}
           </div>
         )}
+        {acoes}
       </div>
       {cancelada ? (
-        <Badge tone="danger">cancelada</Badge>
+        <Badge tone="danger">desfeito</Badge>
       ) : m.tipo === "inventario" ? (
         <span className="shrink-0 text-right">
           <span className="num block font-bold">= {m.quantidade}</span>
@@ -1710,32 +1809,23 @@ function LinhaHistorico({ m, onEditar }: { m: Mov; onEditar?: () => void }) {
       ) : (
         <Qtd tipo={m.tipo} quantidade={m.quantidade} />
       )}
-      {onEditar && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-my-1 -mr-2 size-9 px-0"
-          aria-label={`Editar amostra de ${m.produtos.nome}`}
-          onClick={onEditar}
-        >
-          <Pencil size={15} />
-        </Button>
-      )}
     </div>
   );
 }
 
-function EditarAmostra({
-  amostra,
+function EditarMovimento({
+  mov,
   onClose,
   onSaved,
 }: {
-  amostra: Amostra;
+  mov: Mov;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [qtd, setQtd] = useState(String(amostra.quantidade));
-  const [comentario, setComentario] = useState(amostra.comentario ?? "");
+  const T = TIPOS[mov.tipo];
+  const contagem = mov.tipo === "inventario";
+  const [qtd, setQtd] = useState(String(mov.quantidade));
+  const [comentario, setComentario] = useState(mov.comentario ?? "");
   const [salvando, setSalvando] = useState(false);
   const n = Number(qtd);
   const valido = qtd !== "" && Number.isInteger(n) && n >= 0;
@@ -1744,26 +1834,26 @@ function EditarAmostra({
     const com = campoTexto(comentario, "Comentário");
     if (com.erro) return toast.error(com.erro);
     setSalvando(true);
-    const { error } = await supabase.rpc("editar_amostra", {
-      p_id: amostra.id,
+    const { error } = await supabase.rpc("editar_movimento", {
+      p_id: mov.id,
       p_quantidade: quantidade,
       p_comentario: com.valor,
     });
     setSalvando(false);
     if (error)
-      return toast.error("Amostra não alterada", {
+      return toast.error("Não alterado", {
         description: error.message,
       });
     toast.success(
-      quantidade === 0
-        ? "Amostra cancelada — a unidade voltou ao estoque"
-        : "Amostra atualizada",
+      quantidade === 0 && !contagem
+        ? "Lançamento desfeito — o estoque voltou como estava"
+        : `${T.curto} corrigida`,
     );
     onSaved();
   }
 
   return (
-    <Modal open onClose={onClose} title="Editar amostra">
+    <Modal open onClose={onClose} title={`Corrigir ${T.curto.toLowerCase()}`}>
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -1772,14 +1862,14 @@ function EditarAmostra({
         }}
       >
         <div className="rounded-xl bg-paper px-4 py-3 text-sm">
-          <div className="font-semibold">{amostra.produtos.nome}</div>
+          <div className="font-semibold">{mov.produtos.nome}</div>
           <div className="text-xs text-muted">
-            Aberta por {amostra.abriu?.nome ?? "—"} em{" "}
-            {dataHora(amostra.created_at)}
+            {T.nome} lançada por {mov.abriu?.nome ?? "—"} em{" "}
+            {dataHora(mov.created_at)}
           </div>
         </div>
         <div className="grid grid-cols-[6rem_1fr] gap-3">
-          <Field label="Quantidade">
+          <Field label={contagem ? "Quantidade contada" : "Quantidade certa"}>
             <Input
               type="number"
               min={0}
@@ -1798,18 +1888,18 @@ function EditarAmostra({
           </Field>
         </div>
         <p className="text-xs text-muted">
-          A alteração fica registrada com o seu nome. Quantidade 0 cancela a
-          amostra e devolve a unidade ao estoque.
+          Coloque a quantidade correta; o estoque se ajusta sozinho. A
+          alteração fica registrada com o seu nome
+          {!contagem && " e pode ser refeita depois"}.
         </p>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {amostra.quantidade > 0 ? (
+          {!contagem && mov.quantidade > 0 ? (
             <Button
               variant="danger"
-              size="sm"
               disabled={salvando}
               onClick={() => salvar(0)}
             >
-              Cancelar amostra
+              <Undo2 size={16} /> Desfazer tudo
             </Button>
           ) : (
             <span />

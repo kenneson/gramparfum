@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useData } from "@/lib/use-data";
 import Image from "next/image";
-import { Ban, LoaderCircle, Pencil, X } from "lucide-react";
+import { Ban, LoaderCircle, MousePointerClick, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { FORMAS, dataHora, hojeISO, hora, money, num } from "@/lib/domain";
 import { amostrasDoDia, amostrasPorProduto } from "@/lib/amostras";
+import { MAX_MOTIVO, campoTexto } from "@/lib/texto";
 import {
   Badge,
   Button,
@@ -21,11 +22,13 @@ import {
   Stat,
   Tabela,
   Tabs,
+  Textarea,
   cx,
 } from "@/components/ui";
 import { SemLoja, useApp } from "@/components/shell";
 import { Pagamento } from "../caixa/pagamento";
 import { Exportar } from "@/components/exportar";
+import { anularComChefe } from "./actions";
 
 // Vem de relatorio_vendas. Perfil < 100 em vários dias: total, troco e preco vêm null e só pagamentos em dinheiro.
 type Venda = {
@@ -34,6 +37,7 @@ type Venda = {
   total: number;
   troco: number;
   anulada: boolean;
+  anulacao: { motivo: string | null; por: string | null; em: string | null } | null; // motivo null = anulada no sistema antigo
   vendedor_id: string;
   vendedor: { nome: string };
   operador: { nome: string } | null;
@@ -231,6 +235,12 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
       {lista.length === 0 ? (
         <Empty>Nenhuma venda no período.</Empty>
       ) : (
+        <>
+        <p className="mb-2 flex items-center gap-1.5 text-sm text-muted">
+          <MousePointerClick size={16} className="shrink-0 text-gold" />
+          Toque numa venda para ver o ticket, <b className="text-ink">anular</b> ou{" "}
+          <b className="text-ink">trocar o vendedor</b>.
+        </p>
         <Card className="overflow-hidden">
           <ul className="divide-y divide-line">
             {lista.map((v) => (
@@ -272,6 +282,7 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
             ))}
           </ul>
         </Card>
+        </>
       )}
     </>
   );
@@ -375,8 +386,10 @@ function Ticket({
   const { profile, lojaId, idioma } = useApp();
   const [membros, setMembros] = useState<{ id: string; nome: string }[]>([]);
   const [novo, setNovo] = useState(venda.vendedor_id);
-  const [confirmarAnular, setConfirmarAnular] = useState(false);
-  const podeEditar = profile.role >= 90 && !venda.anulada;
+  const [anulando, setAnulando] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const chefe = profile.role >= 90;
+  const podeEditar = chefe && !venda.anulada;
 
   useEffect(() => {
     if (!podeEditar) return;
@@ -384,15 +397,39 @@ function Ticket({
       .from("loja_membros")
       .select("profiles!inner(id, nome)")
       .eq("loja_id", lojaId!)
+      .eq("ativo", true)
+      .eq("profiles.ativo", true)
       .then(({ data }) =>
-        setMembros(((data ?? []) as unknown as { profiles: { id: string; nome: string } }[]).map((m) => m.profiles)),
+        setMembros(
+          ((data ?? []) as unknown as { profiles: { id: string; nome: string } }[])
+            .map((m) => m.profiles)
+            .sort((a, b) => a.nome.localeCompare(b.nome)),
+        ),
       );
   }, [podeEditar, lojaId]);
 
-  async function rpc(fn: "anular_venda" | "trocar_vendedor", args: Record<string, unknown>, ok: string) {
-    const { error } = await supabase.rpc(fn, args);
+  async function trocarVendedor() {
+    const { error } = await supabase.rpc("trocar_vendedor", { p_venda_id: venda.id, p_vendedor_id: novo });
     if (error) return toast.error(error.message);
-    toast.success(ok);
+    toast.success("Vendedor alterado");
+    onClose();
+    onChange();
+  }
+
+  // Chefe+ anula direto; vendedor precisa do usuário e senha do chefe (anularComChefe)
+  async function anular(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const m = campoTexto(String(f.get("motivo") ?? ""), "Motivo", { obrigatorio: true, max: MAX_MOTIVO });
+    if (m.erro) return toast.error(m.erro);
+    setEnviando(true);
+    const error = chefe
+      ? (await supabase.rpc("anular_venda", { p_venda_id: venda.id, p_motivo: m.valor })).error?.message
+      : (await anularComChefe(venda.id, m.valor!, String(f.get("usuario") ?? ""), String(f.get("senha") ?? "")))
+          .error;
+    setEnviando(false);
+    if (error) return toast.error("Venda não anulada", { description: error });
+    toast.success(`Venda #${nVenda(venda.id)} anulada`, { description: "Produtos devolvidos ao estoque" });
     onClose();
     onChange();
   }
@@ -408,8 +445,14 @@ function Ticket({
             </div>
             <div className="mt-1 text-center font-semibold">Vendedor: {venda.vendedor.nome}</div>
             {venda.anulada && (
-              <div className="mt-2 flex justify-center">
+              <div className="mt-2 flex flex-col items-center gap-1 text-center">
                 <Badge tone="danger">VENDA ANULADA</Badge>
+                {venda.anulacao?.motivo && <p className="text-sm">Motivo: {venda.anulacao.motivo}</p>}
+                {venda.anulacao?.por && (
+                  <p className="text-xs text-muted">
+                    autorizada por {venda.anulacao.por} · {dataHora(venda.anulacao.em)}
+                  </p>
+                )}
               </div>
             )}
             <ul className="mt-4 space-y-1.5 border-t border-dashed border-line pt-3">
@@ -454,6 +497,11 @@ function Ticket({
               <div className="flex items-end gap-2">
                 <Field label="Trocar vendedor" className="flex-1">
                   <Select value={novo} onChange={(e) => setNovo(e.target.value)}>
+                    {!membros.some((m) => m.id === venda.vendedor_id) && (
+                      <option value={venda.vendedor_id} disabled>
+                        {venda.vendedor.nome} (inativo)
+                      </option>
+                    )}
                     {membros.map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.nome}
@@ -461,28 +509,56 @@ function Ticket({
                     ))}
                   </Select>
                 </Field>
-                <Button
-                  size="lg"
-                  disabled={!novo || novo === venda.vendedor_id}
-                  onClick={() =>
-                    rpc("trocar_vendedor", { p_venda_id: venda.id, p_vendedor_id: novo }, "Vendedor alterado")
-                  }
-                >
+                <Button size="lg" disabled={!novo || novo === venda.vendedor_id} onClick={trocarVendedor}>
                   Salvar
                 </Button>
               </div>
-              <Button
-                variant="danger"
-                onClick={() =>
-                  confirmarAnular
-                    ? rpc("anular_venda", { p_venda_id: venda.id }, "Venda anulada")
-                    : setConfirmarAnular(true)
-                }
-              >
-                <Ban size={16} /> {confirmarAnular ? "Confirmar anulação — o estoque volta" : "Anular venda"}
-              </Button>
             </div>
           )}
+
+          {!venda.anulada &&
+            (anulando ? (
+              <form
+                onSubmit={anular}
+                className="flex flex-col gap-3 rounded-2xl border border-danger/30 bg-danger-soft/40 p-4"
+              >
+                <Field label="Motivo da anulação">
+                  <Textarea name="motivo" required minLength={3} maxLength={MAX_MOTIVO} autoFocus />
+                </Field>
+                {!chefe && (
+                  <>
+                    <p className="text-xs font-semibold text-muted">Autorização do chefe de loja</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Usuário do chefe">
+                        <Input name="usuario" required autoComplete="off" autoCapitalize="none" spellCheck={false} />
+                      </Field>
+                      <Field label="Senha">
+                        {/* new-password: o navegador não preenche com a senha do vendedor logado */}
+                        <Input name="senha" type="password" required autoComplete="new-password" />
+                      </Field>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setAnulando(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" variant="danger" disabled={enviando}>
+                    <Ban size={16} /> Anular — o estoque volta
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <Button variant="danger" size="lg" onClick={() => setAnulando(true)}>
+                  <Ban size={18} /> Anular venda
+                </Button>
+                <p className="text-center text-xs text-muted">
+                  Os produtos voltam ao estoque.
+                  {!chefe && " Precisa do usuário e da senha do chefe de loja."}
+                </p>
+              </div>
+            ))}
         </div>
       }
     </Modal>
@@ -660,7 +736,10 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
   const [amostras] = useData(buscar);
 
   const validas = vendas.filter((v) => !v.anulada);
-  const anuladas = vendas.length - validas.length;
+  // ponytail: anulada aparece no dia da venda; anular hoje uma venda de ontem não entra no fechamento de hoje
+  const anuladas = vendas.filter((v) => v.anulada);
+  const motivo = (v: Venda) =>
+    `${v.anulacao?.motivo ?? "sem motivo (sistema antigo)"}${v.anulacao?.por ? ` · autorizada por ${v.anulacao.por}` : ""}`;
   const porProduto = [
     ...validas
       .flatMap((v) => v.venda_itens)
@@ -701,6 +780,11 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
             linhas={[
               ...porProduto.map((r) => [r.nome, r.qtd, money(r.valor, idioma)]),
               ["TOTAL", itens, money(total, idioma)],
+              ...anuladas.map((v) => [
+                `ANULADA #${nVenda(v.id)} (${v.vendedor.nome}) — ${motivo(v)}`,
+                null,
+                money(v.total, idioma),
+              ]),
             ]}
           />
         </div>
@@ -708,7 +792,7 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
           <Stat
             label="Vendas"
             value={String(validas.length)}
-            hint={anuladas ? `${anuladas} anulada(s) fora da conta` : undefined}
+            hint={anuladas.length ? `${anuladas.length} anulada(s) fora da conta` : undefined}
           />
           <Stat label="Itens vendidos" value={num(itens)} />
           <Stat label="Total vendido" value={money(total, idioma)} />
@@ -729,6 +813,27 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
             rows={porProduto.map((r) => [r.nome, num(r.qtd), money(r.valor, idioma)])}
             foot={["Total", num(itens), money(total, idioma)]}
           />
+        )}
+        {anuladas.length > 0 && (
+          <>
+            <h3 className="mt-5 mb-2 text-xs font-bold tracking-wide text-muted uppercase">Vendas anuladas</h3>
+            <Card className="divide-y divide-line">
+              {anuladas.map((v) => (
+                <div key={v.id} className="px-4 py-2.5 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-semibold">
+                      <span className="num">#{nVenda(v.id)}</span> · {v.vendedor.nome}
+                    </span>
+                    <span className="num font-semibold text-danger line-through">{money(v.total, idioma)}</span>
+                  </div>
+                  <div className="text-xs text-muted">
+                    {hora(v.created_at)} · {v.venda_itens.map((i) => `${i.quantidade}× ${i.produtos.nome}`).join(", ")}
+                  </div>
+                  <div className="mt-0.5 text-xs">{motivo(v)}</div>
+                </div>
+              ))}
+            </Card>
+          </>
         )}
       </section>
 

@@ -54,7 +54,7 @@ export function Gestao() {
     { value: "equipe", label: "Equipe" },
     { value: "produtos", label: "Produtos" },
   ];
-  if (profile.role === 200) abas.push({ value: "lojas", label: "Lojas" });
+  if (profile.role >= 100) abas.push({ value: "lojas", label: "Lojas" });
 
   return (
     <>
@@ -696,7 +696,7 @@ function FormProduto({
   );
 }
 
-/* ───────────── Lojas (admin do sistema) ───────────── */
+/* ───────────── Lojas (administração: 100 vê/cria as suas, 200 todas) ───────────── */
 
 function Lojas() {
   const router = useRouter();
@@ -735,8 +735,8 @@ function Lojas() {
           });
           if (c.erro) return toast.error(c.erro);
           mutar(
-            supabase.from("lojas").insert({ nome: c.valor! }),
-            "Loja criada",
+            supabase.rpc("criar_loja", { p_nome: c.valor! }),
+            `Loja “${c.valor}” criada — escolha ela no seletor de loja e cadastre a equipe e os produtos`,
           );
           setNome("");
         }}

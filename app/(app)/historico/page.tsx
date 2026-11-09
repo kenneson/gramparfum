@@ -17,6 +17,7 @@ const TIPOS: Record<string, { label: string; tone: "danger" | "neutral" | "gold"
   edicao: { label: "Edição", tone: "neutral" },
   troca_vendedor: { label: "Troca de vendedor", tone: "gold" },
   edicao_amostra: { label: "Edição de amostra", tone: "gold" },
+  edicao_movimento: { label: "Correção de estoque", tone: "gold" },
 };
 
 const nomeDe = (p: unknown) => (p as { nome: string } | null)?.nome ?? "—";

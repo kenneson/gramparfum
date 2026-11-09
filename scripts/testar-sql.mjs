@@ -231,8 +231,20 @@ assert.equal(
   10,
 );
 
-// anular devolve ao estoque
-await as(CHEFE, "select public.anular_venda($1)", [venda]);
+// anular: só chefe+, motivo obrigatório; devolve ao estoque, grava quem/por quê e evento
+await fails(
+  as(VEND, "select public.anular_venda($1, 'Cliente desistiu')", [venda]),
+  /autorização de chefe/,
+);
+await fails(as(CHEFE, "select public.anular_venda($1, '  ')", [venda]), /Motivo: campo obrigatório/);
+await fails(as(CHEFE, "select public.anular_venda($1, 'ok')", [venda]), /Motivo: escreva ao menos 3 letras/);
+await as(CHEFE, "select public.anular_venda($1, '  Cliente   desistiu ')", [venda]);
+const anulada = (await rel(CHEFE, hoje, hoje)).find((v) => v.id === venda);
+assert.equal(anulada.anulacao.motivo, "Cliente desistiu");
+assert.equal(anulada.anulacao.por, "Chefe");
+const [ev] = await db.query("select descricao, user_id from public.eventos where tipo = 'anulacao'").then((r) => r.rows);
+assert.match(ev.descricao, /1× P1, 3× P2.*Motivo: Cliente desistiu/);
+assert.equal(ev.user_id, CHEFE);
 await fails(
   as(
     CHEFE,
@@ -242,6 +254,31 @@ await fails(
   /anulada/,
 );
 assert.deepEqual(await estoque(), { 1: 10, 2: 9 }, "estorno ao anular");
+
+// pedido não pago: chefe troca o vendedor; carrinho junta no carrinho do destino, cliente salvo só muda de dono
+const novoPedido = async (uid, dono, nome = null) =>
+  (
+    await as(uid, "insert into public.pedidos (loja_id, vendedor_id, nome) values (1, $1, $2) returning id", [
+      dono,
+      nome,
+    ])
+  )[0].id;
+const carVend = await novoPedido(VEND, VEND);
+await as(VEND, "insert into public.pedido_itens (pedido_id, produto_id, preco) values ($1, 2, 10)", [carVend]);
+const carChefe = await novoPedido(CHEFE, CHEFE);
+await as(CHEFE, "insert into public.pedido_itens (pedido_id, produto_id, preco) values ($1, 1, 60)", [carChefe]);
+await fails(as(VEND, "select public.trocar_vendedor_pedido($1, $2)", [carVend, CHEFE]), /chefe/);
+const [{ destino }] = await as(CHEFE, "select public.trocar_vendedor_pedido($1, $2) destino", [carVend, CHEFE]);
+assert.equal(Number(destino), carChefe, "carrinho vai para o carrinho do destino");
+assert.equal(
+  (await db.query("select count(*)::int n from public.pedido_itens where pedido_id = $1", [carChefe])).rows[0].n,
+  2,
+);
+assert.equal((await db.query("select 1 from public.pedidos where id = $1", [carVend])).rows.length, 0);
+const salvo = await novoPedido(CHEFE, CHEFE, "Cliente Ana");
+await as(CHEFE, "select public.trocar_vendedor_pedido($1, $2)", [salvo, VEND]);
+assert.equal((await db.query("select vendedor_id from public.pedidos where id = $1", [salvo])).rows[0].vendedor_id, VEND);
+await db.query("delete from public.pedidos where id in ($1, $2)", [carChefe, salvo]);
 
 // amostras: vendedor e chefe abrem; inventário/entrada só admin; cada amostra baixa uma unidade
 const mov = (tipo, qtd = 1, produto = 1) =>
@@ -282,13 +319,13 @@ await fails(
 
 // edição: vendedor só as próprias; registra quem editou e o evento
 await fails(
-  as(VEND, "select public.editar_amostra($1, 2, null)", [amostraChefe]),
-  /só edita as amostras que abriu/,
+  as(VEND, "select public.editar_movimento($1, 2, null)", [amostraChefe]),
+  /só altera os lançamentos que fez/,
 );
-await as(VEND, "select public.editar_amostra($1, 2, 'provador novo')", [
+await as(VEND, "select public.editar_movimento($1, 2, 'provador novo')", [
   amostraVend,
 ]);
-await as(CHEFE, "select public.editar_amostra($1, 0, null)", [amostraChefe]); // cancelada
+await as(CHEFE, "select public.editar_movimento($1, 0, null)", [amostraChefe]); // cancelada
 const [ed] = (
   await db.query(
     "select quantidade, comentario, editado_por from public.estoque_movimentos where id = $1",
@@ -315,10 +352,10 @@ assert.match(
   evs[0].descricao,
   /quantidade 1 → 2; comentário "" → "provador novo"/,
 );
-assert.match(evs[1].descricao, /cancelada \(era 1\)/);
+assert.match(evs[1].descricao, /desfeita \(era 1\)/);
 await fails(
-  as(VEND, "select public.editar_amostra($1, 1, null)", [venda]),
-  /Amostra não encontrada/,
+  as(VEND, "select public.editar_movimento($1, 1, null)", [999999]),
+  /Lançamento não encontrado/,
 );
 
 // lançamento com rascunho: confirmar grava tudo e apaga o rascunho na mesma transação
@@ -362,7 +399,7 @@ const [{ n }] = await confirmar(
   ],
   "caiu",
 );
-assert.equal(n, 2);
+assert.equal(n.length, 2, "devolve os ids gravados");
 assert.equal(
   (await as(VEND, "select * from public.estoque_rascunhos")).length,
   0,
@@ -376,9 +413,26 @@ assert.deepEqual(
   "avaria/doação baixam, devolução soma",
 );
 
+// desfazer o lançamento inteiro e refazer cada produto (volta à quantidade anterior)
+const [{ id: doacao }] = await db.query("select id from public.estoque_movimentos where tipo = 'doacao'").then((r) => r.rows);
+await fails(as(VEND, "select public.desfazer_movimentos($1)", [[doacao]]), /só altera os lançamentos que fez/);
+await as(VEND, "select public.desfazer_movimentos($1)", [n]);
+assert.deepEqual(await estoque(), { 1: 14, 2: 8 }, "desfeito: a avaria volta ao estoque");
+for (const id of n)
+  await as(VEND, "select public.editar_movimento(id, quantidade_anterior, comentario) from public.estoque_movimentos where id = $1", [id]);
+assert.deepEqual(await estoque(), { 1: 13, 2: 6 }, "refeito");
+assert.match(
+  (await db.query("select descricao from public.eventos where tipo = 'edicao_movimento' order by id desc limit 1")).rows[0].descricao,
+  /Estragou de P2 .*refeita \(2\)/,
+);
+
 // contagem (qualquer membro): snapshot do período calculado no banco
 await db.exec("update public.produtos set estoque_minimo = 7 where id = 2");
 await confirmar(VEND, "inventario", [{ produto_id: 1, quantidade: 12 }]);
+await fails(
+  as(VEND, "select public.desfazer_movimentos(array[(select max(id) from public.estoque_movimentos)])"),
+  /Contagem não se desfaz/,
+);
 const [inv] = (
   await db.query(
     "select saldo_anterior, entradas, saidas from public.estoque_movimentos where tipo = 'inventario' order by id desc limit 1",
@@ -475,6 +529,38 @@ await fails(
 await fails(
   db.query("update public.lojas set nome = 'L' where id = 1"),
   /Nome da loja/,
+);
+
+// troca de vendedor só para ativos
+const INAT = "00000000-0000-0000-0000-000000000051";
+await db.exec(`
+  set session_replication_role = replica;
+  insert into auth.users values ('${INAT}');
+  insert into public.profiles (id, nome, usuario, role, ativo) values ('${INAT}', 'Inativo', 'inativo', 50, false);
+  insert into public.loja_membros (loja_id, user_id) values (1, '${INAT}');
+  set session_replication_role = origin;
+`);
+const [{ id: vendaOk }] = (await db.query("select id from public.vendas where not anulada limit 1")).rows;
+await fails(as(CHEFE, "select public.trocar_vendedor($1, $2)", [vendaOk, INAT]), /inativo/);
+
+// lojas: admin geral (100) cria e vira membro; vendedor/chefe não
+await fails(as(CHEFE, "select public.criar_loja('Loja Nova')"), /Só a administração/);
+const [{ id: lojaNova }] = await as(ADM, "select public.criar_loja('Loja Nova') id");
+assert.equal((await as(ADM, "select id from public.lojas where id = $1", [lojaNova])).length, 1, "admin enxerga a loja que criou");
+
+// metas: chefe+ define; mínima ≤ média ≤ FULL; ranking só ativos não-admin, em combos
+const meta = (uid, min, med, full) =>
+  as(uid, "insert into public.metas (loja_id, user_id, meta_minima, meta_media, meta_full) values (1, $1, $2, $3, $4)", [
+    VEND, min, med, full,
+  ]);
+await fails(meta(VEND, 5, 10, 20), /row-level security/);
+await fails(meta(CHEFE, 10, 5, 20), /check constraint/);
+await meta(CHEFE, 5, 10, 20);
+const rk = await as(VEND, "select nome, combos, vendas, meta_full from public.ranking_vendedores(1, $1, $1)", [hoje]);
+assert.deepEqual(
+  rk.map((r) => [r.nome, Number(r.combos), r.vendas, r.meta_full && Number(r.meta_full)]),
+  [["Chefe", 1, 1, null], ["Vend", 0, 0, 20]],
+  "venda anulada não conta; admin e inativo fora",
 );
 
 console.log("todos os testes passaram");

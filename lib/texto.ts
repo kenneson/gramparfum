@@ -10,6 +10,8 @@ export const limpar = (s: string | null | undefined) =>
 export const MIN_LETRAS = 3;
 export const MAX_NOME = 80;
 export const MAX_TEXTO = 500;
+// anulação: o servidor acrescenta "— solicitado por <nome>" (até MAX_NOME) e o banco limita em MAX_TEXTO
+export const MAX_MOTIVO = MAX_TEXTO - MAX_NOME - 20;
 
 type Regra = { obrigatorio?: boolean; max?: number };
 

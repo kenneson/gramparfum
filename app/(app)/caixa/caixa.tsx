@@ -44,6 +44,7 @@ type Item = {
 };
 
 const supabase = createClient();
+const ITEM_COLS = "id, produto_id, preco, quantidade, produtos(nome)";
 const mapaEstoque = (e: Estoque[] | null) =>
   new Map((e ?? []).map((r) => [r.produto_id, r.estoque]));
 
@@ -201,7 +202,7 @@ function Venda({
     if (!pedidoAtivo) return { pedido: null, itens: [] as Item[] };
     const { data } = await supabase
       .from("pedido_itens")
-      .select("id, produto_id, preco, quantidade, produtos(nome)")
+      .select(ITEM_COLS)
       .eq("pedido_id", pedidoAtivo)
       .order("id");
     return {
@@ -229,36 +230,47 @@ function Venda({
       : produtos;
   }, [busca, produtos]);
 
-  async function garantirPedido() {
-    if (pedidoAtivo) return pedidoAtivo;
-    const { data, error } = await supabase
-      .from("pedidos")
-      .insert({ loja_id: lojaId, vendedor_id: vendedorId })
-      .select("id, nome, descricao")
-      .single();
-    if (error) throw error;
-    setPedidos((ps) => [...(ps ?? []), data as Pedido]);
-    return data.id as number;
-  }
-
   async function adicionar(p: Produto) {
+    // Já no carrinho: +1 otimista, a tela muda antes do banco responder
+    const existente = itens.find((i) => i.produto_id === p.id);
+    if (existente)
+      return editarItem(existente, { quantidade: existente.quantidade + 1 });
+
+    let novo: Pedido | null = null;
     try {
-      const id = await garantirPedido();
-      const existente = itens.find((i) => i.produto_id === p.id);
-      const { error } = existente
-        ? await supabase
-            .from("pedido_itens")
-            .update({ quantidade: existente.quantidade + 1 })
-            .eq("id", existente.id)
-        : await supabase
-            .from("pedido_itens")
-            .insert({ pedido_id: id, produto_id: p.id, preco: p.preco });
+      let id = pedidoAtivo;
+      if (!id) {
+        const { data, error } = await supabase
+          .from("pedidos")
+          .insert({ loja_id: lojaId, vendedor_id: vendedorId })
+          .select("id, nome, descricao")
+          .single();
+        if (error) throw error;
+        novo = data as Pedido;
+        id = novo.id;
+      }
+      // insert já devolve a linha: sem segunda ida ao banco para recarregar o carrinho
+      const { data, error } = await supabase
+        .from("pedido_itens")
+        .insert({ pedido_id: id, produto_id: p.id, preco: p.preco })
+        .select(ITEM_COLS)
+        .single();
       if (error) throw error;
-      recarregarItens();
+      const item = { ...(data as unknown as Item), preco: Number(data.preco) };
+      const pedido = id;
+      setItensData((d) => ({
+        pedido,
+        itens: [...(d?.pedido === pedido ? d.itens : []), item],
+      }));
     } catch (e) {
       toast.error("Não foi possível adicionar o produto", {
         description: (e as Error).message,
       });
+    } finally {
+      // pedido novo só entra no estado depois do item: assim a busca automática de itens
+      // dele roda com o item já gravado e não apaga o que acabou de aparecer
+      const criado = novo;
+      if (criado) setPedidos((ps) => [...(ps ?? []), criado]);
     }
   }
 

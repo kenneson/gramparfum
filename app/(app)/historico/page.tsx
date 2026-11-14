@@ -4,7 +4,7 @@ import { LogIn } from "lucide-react";
 import { requireRole } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { FORMAS, ROLES, TZ, dataHora, hojeISO, intervaloDia, type Role } from "@/lib/domain";
-import { Avatar, Badge, Card, PageHeader, cx } from "@/components/ui";
+import { Avatar, Badge, Card, PageHeader } from "@/components/ui";
 import { Exportar } from "@/components/exportar";
 
 // Só administração: quem fez o quê e quando. Filtros na URL (formulário GET), a página renderiza no servidor.
@@ -371,10 +371,10 @@ export default async function HistoricoPage({ searchParams }: PageProps<"/histor
                 key={a.value}
                 href={href({ aba: a.value, tipo: "" })}
                 aria-current={aba === a.value ? "page" : undefined}
-                className={cx(
-                  "grid h-9 flex-1 place-items-center rounded-xl px-3.5 text-sm font-semibold whitespace-nowrap transition sm:flex-none sm:px-4",
-                  aba === a.value ? "bg-ink text-white shadow-sm" : "text-muted hover:bg-ink/5 hover:text-ink",
-                )}
+                // sem cx(): ui.tsx é "use client" e função de módulo cliente não roda no servidor
+                className={`grid h-9 flex-1 place-items-center rounded-xl px-3.5 text-sm font-semibold whitespace-nowrap transition sm:flex-none sm:px-4 ${
+                  aba === a.value ? "bg-ink text-white shadow-sm" : "text-muted hover:bg-ink/5 hover:text-ink"
+                }`}
               >
                 {a.label}
               </Link>

@@ -56,7 +56,7 @@ const fails = async (p, re) =>
 const estoque = async () =>
   Object.fromEntries(
     (
-      await as(VEND, "select produto_id, estoque from public.estoque_loja(1)")
+      await as(VEND, "select produto_id, estoque from public.estoque_loja(1) where produto_id <= 2")
     ).map((r) => [r.produto_id, r.estoque]),
   );
 const hoje = (
@@ -225,11 +225,13 @@ await as(
 );
 assert.equal((await rel(VEND, hoje, hoje)).length, 1);
 assert.equal((await rel(CHEFE, hoje, hoje)).length, 2);
-// dinheiro aparece no multi-dia restrito
-assert.equal(
-  Number((await rel(CHEFE, ontem, hoje))[1].venda_pagamentos[0].valor),
-  10,
-);
+// vários dias abaixo da administração: nenhum valor (nem o dinheiro); dia anterior sozinho também não
+assert.deepEqual((await rel(CHEFE, ontem, hoje))[1].venda_pagamentos, []);
+await db.exec(`update public.vendas set created_at = created_at - interval '1 day' where id = ${venda}`);
+const [velha] = await rel(CHEFE, ontem, ontem);
+assert.equal(velha.total, null, "chefe: só hoje tem valores");
+assert.equal(Number((await rel(ADM, ontem, ontem))[0].total), 90, "admin: qualquer dia");
+await db.exec(`update public.vendas set created_at = created_at + interval '1 day' where id = ${venda}`);
 
 // anular: só chefe+, motivo obrigatório; devolve ao estoque, grava quem/por quê e evento
 await fails(
@@ -280,118 +282,87 @@ await as(CHEFE, "select public.trocar_vendedor_pedido($1, $2)", [salvo, VEND]);
 assert.equal((await db.query("select vendedor_id from public.pedidos where id = $1", [salvo])).rows[0].vendedor_id, VEND);
 await db.query("delete from public.pedidos where id in ($1, $2)", [carChefe, salvo]);
 
-// amostras: vendedor e chefe abrem; inventário/entrada só admin; cada amostra baixa uma unidade
+// lançamentos por perfil: vendedor só conta; chefe compra e abre amostra; doação/estragou só admin
 const mov = (tipo, qtd = 1, produto = 1) =>
   `insert into public.estoque_movimentos (produto_id, tipo, quantidade) values (${produto}, '${tipo}', ${qtd}) returning id`;
-const [{ id: amostraVend }] = await as(VEND, mov("amostra"));
+await fails(as(VEND, mov("amostra")), /row-level security/, "vendedor não abre amostra");
+await fails(as(VEND, mov("entrada", 5)), /row-level security/, "vendedor não agrega ao estoque");
+await fails(as(CHEFE, mov("doacao")), /row-level security/, "doação só admin");
+await fails(as(CHEFE, mov("avaria")), /row-level security/, "estragou só admin");
+await fails(as(ADM, mov("devolucao")), /row-level security/, "devolução só pelo caixa");
+await fails(as(ADM, mov("recuperacao")), /row-level security/, "recuperação só pela função");
 const [{ id: amostraChefe }] = await as(CHEFE, mov("amostra"));
-assert.deepEqual(
-  await estoque(),
-  { 1: 8, 2: 9 },
-  "amostra dá baixa no estoque",
-);
+const [{ id: amostraAdm }] = await as(ADM, mov("amostra"));
+await as(CHEFE, mov("entrada", 5));
+assert.deepEqual(await estoque(), { 1: 13, 2: 9 }, "10 − 2 amostras + 5 compra");
 assert.equal(
-  (
-    await db.query(
-      "select created_by from public.estoque_movimentos where id = $1",
-      [amostraVend],
-    )
-  ).rows[0].created_by,
-  VEND,
+  (await db.query("select created_by from public.estoque_movimentos where id = $1", [amostraChefe])).rows[0].created_by,
+  CHEFE,
   "guarda quem abriu",
 );
-// qualquer membro lança qualquer tipo; doação só chefe+
 await fails(
-  as(VEND, mov("doacao")),
-  /row-level security/,
-  "vendedor não lança doação",
-);
-await fails(as(VEND, mov("amostra", 0)), /row-level security/);
-await as(ADM, mov("entrada", 5));
-await fails(
-  as(
-    CHEFE,
-    "update public.estoque_movimentos set quantidade = 99 where id = $1",
-    [amostraChefe],
-  ),
+  as(CHEFE, "update public.estoque_movimentos set quantidade = 99 where id = $1", [amostraChefe]),
   /permission denied/,
 );
 
-// edição: vendedor só as próprias; registra quem editou e o evento
+// corrigir/desfazer: justificativa obrigatória; abaixo do admin só o que a pessoa lançou
 await fails(
-  as(VEND, "select public.editar_movimento($1, 2, null)", [amostraChefe]),
+  as(CHEFE, "select public.editar_movimento($1, 2, null, 'corrigindo isso')", [amostraAdm]),
   /só altera os lançamentos que fez/,
 );
-await as(VEND, "select public.editar_movimento($1, 2, 'provador novo')", [
-  amostraVend,
-]);
-await as(CHEFE, "select public.editar_movimento($1, 0, null)", [amostraChefe]); // cancelada
+await fails(
+  as(CHEFE, "select public.editar_movimento($1, 2, 'provador novo', '   ')", [amostraChefe]),
+  /Justificativa: campo obrigatório/,
+);
+await fails(
+  as(CHEFE, "select public.editar_movimento($1, 2, 'provador novo', 'ok')", [amostraChefe]),
+  /Justificativa: escreva ao menos 3 letras/,
+);
+await as(CHEFE, "select public.editar_movimento($1, 2, 'provador novo', 'abri dois provadores')", [amostraChefe]);
+await as(ADM, "select public.editar_movimento($1, 0, null, 'lançado por engano')", [amostraAdm]);
 const [ed] = (
   await db.query(
-    "select quantidade, comentario, editado_por from public.estoque_movimentos where id = $1",
-    [amostraVend],
+    "select quantidade, comentario, editado_por, motivo_edicao from public.estoque_movimentos where id = $1",
+    [amostraChefe],
   )
 ).rows;
 assert.deepEqual(ed, {
   quantidade: 2,
   comentario: "provador novo",
-  editado_por: VEND,
+  editado_por: CHEFE,
+  motivo_edicao: "abri dois provadores",
 });
-assert.deepEqual(
-  await estoque(),
-  { 1: 13, 2: 9 },
-  "10 + 5 entrada - 2 amostra (a outra cancelada)",
-);
+assert.deepEqual(await estoque(), { 1: 13, 2: 9 }, "10 + 5 compra − 2 amostra (a outra desfeita)");
 const evs = (
-  await db.query(
-    "select descricao, user_id from public.eventos where tipo = 'edicao_amostra' order by id",
-  )
+  await db.query("select descricao, user_id from public.eventos where tipo = 'edicao_amostra' order by id")
 ).rows;
 assert.equal(evs.length, 2);
-assert.match(
-  evs[0].descricao,
-  /quantidade 1 → 2; comentário "" → "provador novo"/,
-);
+assert.match(evs[0].descricao, /quantidade 1 → 2; comentário "" → "provador novo". Justificativa: abri dois provadores/);
 assert.match(evs[1].descricao, /desfeita \(era 1\)/);
 await fails(
-  as(VEND, "select public.editar_movimento($1, 1, null)", [999999]),
+  as(VEND, "select public.editar_movimento($1, 1, null, 'qualquer coisa')", [999999]),
   /Lançamento não encontrado/,
 );
 
 // lançamento com rascunho: confirmar grava tudo e apaga o rascunho na mesma transação
 const confirmar = (uid, tipo, itens, com = null) =>
-  as(uid, "select public.confirmar_movimento(1, $1, $2, $3) n", [
-    tipo,
-    JSON.stringify(itens),
-    com,
-  ]);
-await as(
-  VEND,
-  `insert into public.estoque_rascunhos (loja_id, tipo, itens) values (1, 'avaria', '[]')`,
-);
-assert.equal(
-  (await as(CHEFE, "select * from public.estoque_rascunhos")).length,
-  0,
-  "rascunho é só de quem criou",
-);
+  as(uid, "select public.confirmar_movimento(1, $1, $2, $3) n", [tipo, JSON.stringify(itens), com]);
+await as(ADM, `insert into public.estoque_rascunhos (loja_id, tipo, itens) values (1, 'avaria', '[]')`);
+assert.equal((await as(CHEFE, "select * from public.estoque_rascunhos")).length, 0, "rascunho é só de quem criou");
+await fails(confirmar(CHEFE, "doacao", [{ produto_id: 1, quantidade: 1 }]), /Só a administração/);
+await fails(confirmar(VEND, "entrada", [{ produto_id: 1, quantidade: 1 }]), /Compra e amostra só pelo chefe/);
+await fails(confirmar(ADM, "devolucao", [{ produto_id: 1, quantidade: 1 }]), /Devolução se faz no Caixa/);
 await fails(
-  confirmar(VEND, "doacao", [{ produto_id: 1, quantidade: 1 }]),
-  /Doação só com autorização/,
-);
-await fails(
-  confirmar(VEND, "avaria", [
+  confirmar(ADM, "avaria", [
     { produto_id: 1, quantidade: 1 },
     { produto_id: 1, quantidade: 2 },
   ]),
   /repetido/,
 );
-await fails(
-  confirmar(VEND, "avaria", [{ produto_id: 1, quantidade: 0 }]),
-  /inválidos/,
-);
-await fails(confirmar(VEND, "avaria", []), /Nenhum produto/);
+await fails(confirmar(ADM, "avaria", [{ produto_id: 1, quantidade: 0 }]), /inválidos/);
+await fails(confirmar(ADM, "avaria", []), /Nenhum produto/);
 const [{ n }] = await confirmar(
-  VEND,
+  ADM,
   "avaria",
   [
     { produto_id: 1, quantidade: 1 },
@@ -400,136 +371,111 @@ const [{ n }] = await confirmar(
   "caiu",
 );
 assert.equal(n.length, 2, "devolve os ids gravados");
-assert.equal(
-  (await as(VEND, "select * from public.estoque_rascunhos")).length,
-  0,
-  "rascunho apagado ao confirmar",
-);
-await confirmar(CHEFE, "doacao", [{ produto_id: 2, quantidade: 1 }]);
-await confirmar(VEND, "devolucao", [{ produto_id: 1, quantidade: 1 }]);
-assert.deepEqual(
-  await estoque(),
-  { 1: 13, 2: 6 },
-  "avaria/doação baixam, devolução soma",
-);
+assert.equal((await as(ADM, "select * from public.estoque_rascunhos")).length, 0, "rascunho apagado ao confirmar");
+await confirmar(ADM, "doacao", [{ produto_id: 2, quantidade: 1 }]);
+await confirmar(CHEFE, "entrada", [{ produto_id: 1, quantidade: 1 }]);
+assert.deepEqual(await estoque(), { 1: 13, 2: 6 }, "avaria/doação baixam, compra soma");
 
-// desfazer o lançamento inteiro e refazer cada produto (volta à quantidade anterior)
+// desfazer o lançamento inteiro (com justificativa) e refazer cada produto
 const [{ id: doacao }] = await db.query("select id from public.estoque_movimentos where tipo = 'doacao'").then((r) => r.rows);
-await fails(as(VEND, "select public.desfazer_movimentos($1)", [[doacao]]), /só altera os lançamentos que fez/);
-await as(VEND, "select public.desfazer_movimentos($1)", [n]);
+await fails(
+  as(CHEFE, "select public.desfazer_movimentos($1, 'lançado errado')", [[doacao]]),
+  /só altera os lançamentos que fez/,
+);
+await fails(as(ADM, "select public.desfazer_movimentos($1, '')", [n]), /Justificativa/);
+await as(ADM, "select public.desfazer_movimentos($1, 'lançado em dobro')", [n]);
 assert.deepEqual(await estoque(), { 1: 14, 2: 8 }, "desfeito: a avaria volta ao estoque");
 for (const id of n)
-  await as(VEND, "select public.editar_movimento(id, quantidade_anterior, comentario) from public.estoque_movimentos where id = $1", [id]);
+  await as(
+    ADM,
+    "select public.editar_movimento(id, quantidade_anterior, comentario, 'estava certo') from public.estoque_movimentos where id = $1",
+    [id],
+  );
 assert.deepEqual(await estoque(), { 1: 13, 2: 6 }, "refeito");
 assert.match(
-  (await db.query("select descricao from public.eventos where tipo = 'edicao_movimento' order by id desc limit 1")).rows[0].descricao,
-  /Estragou de P2 .*refeita \(2\)/,
+  (await db.query("select descricao from public.eventos where tipo = 'edicao_movimento' order by id desc limit 1")).rows[0]
+    .descricao,
+  /Estragou de P2 .*refeita \(2\). Justificativa: estava certo/,
 );
 
 // contagem (qualquer membro): snapshot do período calculado no banco
 await db.exec("update public.produtos set estoque_minimo = 7 where id = 2");
-await confirmar(VEND, "inventario", [{ produto_id: 1, quantidade: 12 }]);
+const [{ n: [contagem] }] = await confirmar(VEND, "inventario", [{ produto_id: 1, quantidade: 12 }]);
 await fails(
-  as(VEND, "select public.desfazer_movimentos(array[(select max(id) from public.estoque_movimentos)])"),
+  as(VEND, "select public.desfazer_movimentos(array[$1::bigint], 'contei errado')", [contagem]),
   /Contagem não se desfaz/,
 );
 const [inv] = (
-  await db.query(
-    "select saldo_anterior, entradas, saidas from public.estoque_movimentos where tipo = 'inventario' order by id desc limit 1",
-  )
+  await db.query("select saldo_anterior, entradas, saidas from public.estoque_movimentos where id = $1", [contagem])
 ).rows;
-assert.deepEqual(
-  inv,
-  { saldo_anterior: 10, entradas: 6, saidas: 3 },
-  "10 + (5 compra + 1 devolução) − (2 amostra + 1 avaria)",
-);
-const est = await as(
-  VEND,
-  "select produto_id, estoque, minimo from public.estoque_loja(1) order by produto_id",
-);
-assert.deepEqual(est, [
+assert.deepEqual(inv, { saldo_anterior: 10, entradas: 6, saidas: 3 }, "10 + (5 + 1 compras) − (2 amostra + 1 avaria)");
+assert.deepEqual(await as(VEND, "select produto_id, estoque, minimo from public.estoque_loja(1) order by produto_id"), [
   { produto_id: 1, estoque: 12, minimo: 0 },
   { produto_id: 2, estoque: 6, minimo: 7 },
 ]);
 
+// divergência: esperado 13, contado 12 → falta 1; só admin vê e resolve
+const div = async () => (await as(ADM, "select esperado, contado, falta, resolvido from public.divergencias_loja(1)"))[0];
+assert.deepEqual(await div(), { esperado: 13, contado: 12, falta: 1, resolvido: 0 });
+assert.equal((await as(CHEFE, "select * from public.divergencias_loja(1)")).length, 0, "chefe não vê divergências");
+const recuperar = (uid, tipo, qtd, valor, forma, pessoa, com) =>
+  as(uid, "select public.registrar_recuperacao($1, $2, $3, $4, $5::smallint, $6, $7) id", [
+    contagem, tipo, qtd, valor, forma, pessoa, com,
+  ]);
+await fails(recuperar(CHEFE, "produto", 1, null, null, null, null), /Só a administração/);
+await fails(recuperar(ADM, "valor", 2, 120, 2, VEND, null), /falta pendente \(1\)/);
+await fails(recuperar(ADM, "valor", 1, 60, null, VEND, null), /forma de pagamento/);
+await fails(recuperar(ADM, "acerto", 1, null, null, VEND, null), /Comentário: campo obrigatório/);
+const [{ id: recProduto }] = await recuperar(ADM, "produto", 1, null, null, null, null);
+assert.deepEqual(await estoque(), { 1: 13, 2: 6 }, "produto recuperado volta ao estoque");
+assert.equal((await div()).resolvido, 1);
+await fails(recuperar(ADM, "valor", 1, 60, 2, VEND, null), /falta pendente \(0\)/);
+await fails(as(CHEFE, "select public.desfazer_recuperacao($1, 'foi engano')", [recProduto]), /Só a administração/);
+await as(ADM, "select public.desfazer_recuperacao($1, 'o produto não tinha voltado')", [recProduto]);
+assert.deepEqual(await estoque(), { 1: 12, 2: 6 }, "recuperação desfeita sai do estoque");
+await recuperar(ADM, "valor", 1, 60, 2, VEND, "descontado do vendedor");
+assert.deepEqual(await estoque(), { 1: 12, 2: 6 }, "valor cobrado não mexe no estoque");
+const caixa = async (uid, de = hoje, ate = hoje) =>
+  (await as(uid, "select public.relatorio_caixa(1, $1, $2) r", [de, ate]))[0].r;
+const [recAdm] = (await caixa(ADM)).recuperacoes;
+assert.deepEqual(
+  { ...recAdm, id: undefined, created_at: undefined },
+  { id: undefined, created_at: undefined, tipo: "valor", forma: 2, valor: 60, quantidade: 1, produto: "P1", pessoa: "Vend" },
+);
+const [recChefe] = (await caixa(CHEFE)).recuperacoes;
+assert.equal(recChefe.valor, 60, "chefe vê o valor que entrou no caixa");
+assert.equal(recChefe.pessoa, null, "mas não de quem");
+assert.deepEqual((await caixa(VEND)).recuperacoes, [], "vendedor não vê recuperados");
+assert.deepEqual((await caixa(CHEFE, ontem, hoje)).recuperacoes, [], "chefe: só hoje");
+
 // validação de texto no banco (mesma regra do app)
+await fails(as(ADM, "insert into public.produtos (loja_id, nome, preco) values (1, '  ab  ', 10)"), /Nome: escreva ao menos 3 letras/);
+await fails(as(ADM, "insert into public.produtos (loja_id, nome, preco) values (1, '   ', 10)"), /Nome: campo obrigatório/);
+await fails(as(ADM, "insert into public.produtos (loja_id, nome, preco) values (1, '. . .', 10)"), /3 letras/);
 await fails(
-  as(
-    ADM,
-    "insert into public.produtos (loja_id, nome, preco) values (1, '  ab  ', 10)",
-  ),
-  /Nome: escreva ao menos 3 letras/,
-);
-await fails(
-  as(
-    ADM,
-    "insert into public.produtos (loja_id, nome, preco) values (1, '   ', 10)",
-  ),
-  /Nome: campo obrigatório/,
-);
-await fails(
-  as(
-    ADM,
-    "insert into public.produtos (loja_id, nome, preco) values (1, '. . .', 10)",
-  ),
-  /3 letras/,
-);
-await fails(
-  as(
-    ADM,
-    `insert into public.produtos (loja_id, nome, preco) values (1, '${"x".repeat(81)}', 10)`,
-  ),
+  as(ADM, `insert into public.produtos (loja_id, nome, preco) values (1, '${"x".repeat(81)}', 10)`),
   /no máximo 80/,
 );
 const [novo] = await as(
   ADM,
   "insert into public.produtos (loja_id, nome, descricao, preco) values (1, '  Âmbar   Noir ', '   ', 10) returning nome, descricao",
 );
-assert.deepEqual(
-  novo,
-  { nome: "Âmbar Noir", descricao: null },
-  "espaços juntados; opcional vazio vira null",
-);
+assert.deepEqual(novo, { nome: "Âmbar Noir", descricao: null }, "espaços juntados; opcional vazio vira null");
 await fails(
-  as(
-    VEND,
-    "insert into public.estoque_movimentos (produto_id, tipo, quantidade, comentario) values (1, 'amostra', 1, 'ok')",
-  ),
+  as(CHEFE, "insert into public.estoque_movimentos (produto_id, tipo, quantidade, comentario) values (1, 'amostra', 1, 'ok')"),
   /Comentário: escreva ao menos 3 letras/,
 );
+await fails(confirmar(ADM, "avaria", [{ produto_id: 1, quantidade: 1 }], "ok"), /3 letras/);
+await as(VEND, `insert into public.pedidos (loja_id, vendedor_id) values (1, '${VEND}')`);
 await fails(
-  confirmar(VEND, "avaria", [{ produto_id: 1, quantidade: 1 }], "ok"),
-  /3 letras/,
-);
-await as(
-  VEND,
-  `insert into public.pedidos (loja_id, vendedor_id) values (1, '${VEND}')`,
-);
-await fails(
-  as(VEND, "update public.pedidos set nome = 'Jo' where vendedor_id = $1", [
-    VEND,
-  ]),
+  as(VEND, "update public.pedidos set nome = 'Jo' where vendedor_id = $1", [VEND]),
   /Nome: escreva ao menos 3 letras/,
 );
 // legado: nome curto não trava a edição de outro campo da mesma linha
-await as(
-  ADM,
-  "update public.produtos set descricao = 'Nova descrição' where id = 1",
-);
-assert.equal(
-  (await db.query("select nome from public.produtos where id = 1")).rows[0]
-    .nome,
-  "P1",
-);
-await fails(
-  as(ADM, "update public.produtos set nome = 'P9' where id = 1"),
-  /3 letras/,
-  "mas trocar o nome exige a regra",
-);
-await fails(
-  db.query("update public.lojas set nome = 'L' where id = 1"),
-  /Nome da loja/,
-);
+await as(ADM, "update public.produtos set descricao = 'Nova descrição' where id = 1");
+assert.equal((await db.query("select nome from public.produtos where id = 1")).rows[0].nome, "P1");
+await fails(as(ADM, "update public.produtos set nome = 'P9' where id = 1"), /3 letras/, "mas trocar o nome exige a regra");
+await fails(db.query("update public.lojas set nome = 'L' where id = 1"), /Nome da loja/);
 
 // troca de vendedor só para ativos
 const INAT = "00000000-0000-0000-0000-000000000051";
@@ -548,19 +494,103 @@ await fails(as(CHEFE, "select public.criar_loja('Loja Nova')"), /Só a administr
 const [{ id: lojaNova }] = await as(ADM, "select public.criar_loja('Loja Nova') id");
 assert.equal((await as(ADM, "select id from public.lojas where id = $1", [lojaNova])).length, 1, "admin enxerga a loja que criou");
 
-// metas: chefe+ define; mínima ≤ média ≤ FULL; ranking só ativos não-admin, em combos
+// metas: só admin define; a da loja vale para todos, a individual por cima
 const meta = (uid, min, med, full) =>
   as(uid, "insert into public.metas (loja_id, user_id, meta_minima, meta_media, meta_full) values (1, $1, $2, $3, $4)", [
     VEND, min, med, full,
   ]);
-await fails(meta(VEND, 5, 10, 20), /row-level security/);
-await fails(meta(CHEFE, 10, 5, 20), /check constraint/);
-await meta(CHEFE, 5, 10, 20);
-const rk = await as(VEND, "select nome, combos, vendas, meta_full from public.ranking_vendedores(1, $1, $1)", [hoje]);
+await fails(meta(CHEFE, 5, 10, 20), /row-level security/, "chefe não define metas");
+await fails(meta(ADM, 10, 5, 20), /check constraint/);
+await meta(ADM, 5, 10, 20);
+const metaLoja = (uid) =>
+  as(uid, "insert into public.metas_loja (loja_id, meta_minima, meta_media, meta_maxima) values (1, 2, 4, 8)");
+await fails(metaLoja(CHEFE), /row-level security/);
+await metaLoja(ADM);
+const ranking = async () =>
+  (await as(VEND, "select nome, combos, vendas, meta_full, meta_individual from public.ranking_vendedores(1, $1, $1)", [hoje])).map(
+    (r) => [r.nome, Number(r.combos), r.vendas, r.meta_full && Number(r.meta_full), r.meta_individual],
+  );
 assert.deepEqual(
-  rk.map((r) => [r.nome, Number(r.combos), r.vendas, r.meta_full && Number(r.meta_full)]),
-  [["Chefe", 1, 1, null], ["Vend", 0, 0, 20]],
-  "venda anulada não conta; admin e inativo fora",
+  await ranking(),
+  [
+    ["Chefe", 1, 1, 8, false],
+    ["Vend", 0, 0, 20, true],
+  ],
+  "venda anulada não conta; admin e inativo fora; meta da loja para quem não tem individual",
+);
+
+// devolução no caixa: vendedor e admin (chefe não); produto e/ou valor, escolhido na hora
+const [{ id: ped }] = await as(VEND, `insert into public.pedidos (loja_id, vendedor_id) values (1, '${VEND}') on conflict do nothing returning id`)
+  .then((r) => (r.length ? r : as(VEND, "select id from public.pedidos where nome is null and vendedor_id = $1", [VEND])));
+await as(VEND, "insert into public.pedido_itens (pedido_id, produto_id, preco, quantidade) values ($1, 2, 10, 3)", [ped]);
+const [{ v: vendaDev }] = await as(VEND, 'select public.finalizar_venda($1, \'[{"forma":1,"valor":30}]\') v', [ped]);
+assert.deepEqual(await estoque(), { 1: 12, 2: 3 });
+const devolver = (uid, itens, volta, valor, forma, motivo = "Cliente não gostou") =>
+  as(uid, "select public.registrar_devolucao($1, $2, $3, $4, $5::smallint, $6) d", [
+    vendaDev, JSON.stringify(itens), volta, valor, forma, motivo,
+  ]);
+await fails(devolver(CHEFE, [{ produto_id: 2, quantidade: 1 }], true, true, 1), /Chefe de loja não faz devolução/);
+await fails(devolver(VEND, [{ produto_id: 2, quantidade: 4 }], true, true, 1), /maior do que a vendida/);
+await fails(devolver(VEND, [{ produto_id: 1, quantidade: 1 }], true, true, 1), /maior do que a vendida/, "produto fora da venda");
+await fails(devolver(VEND, [{ produto_id: 2, quantidade: 1 }], false, false, null), /Escolha o que fazer/);
+await fails(devolver(VEND, [{ produto_id: 2, quantidade: 1 }], true, true, null), /como o valor foi devolvido/);
+await fails(devolver(VEND, [{ produto_id: 2, quantidade: 1 }], true, true, 1, " "), /Motivo: campo obrigatório/);
+assert.equal(
+  (await as(CHEFE, "select public.venda_para_devolucao(1, $1) v", [vendaDev]))[0].v,
+  null,
+  "chefe não abre a devolução",
+);
+const [{ d: dev }] = await devolver(VEND, [{ produto_id: 2, quantidade: 1 }], true, true, 1);
+assert.deepEqual(await estoque(), { 1: 12, 2: 4 }, "produto devolvido volta ao estoque");
+const [{ v: paraDev }] = await as(VEND, "select public.venda_para_devolucao(1, $1) v", [vendaDev]);
+assert.deepEqual(
+  paraDev.itens.map((i) => [i.nome, i.vendido, i.devolvido, i.preco]),
+  [["P2", 3, 1, 10]],
+);
+const [devCaixa] = (await caixa(VEND)).devolucoes;
+assert.equal(devCaixa.valor, 10);
+assert.equal(devCaixa.forma, 1);
+assert.equal(devCaixa.desfeita, false);
+assert.equal(Number((await rel(VEND, hoje, hoje)).find((v) => v.id === vendaDev).devolvido), 10);
+assert.deepEqual((await ranking()).find((r) => r[0] === "Vend"), ["Vend", 2, 1, 20, true], "devolução com valor tira os combos");
+// só o produto (troca, sem dinheiro): estoque volta, combos e caixa ficam
+await devolver(ADM, [{ produto_id: 2, quantidade: 1 }], true, false, null, "Troca por outro tamanho");
+assert.deepEqual(await estoque(), { 1: 12, 2: 5 });
+assert.deepEqual((await ranking()).find((r) => r[0] === "Vend"), ["Vend", 2, 1, 20, true]);
+await fails(devolver(VEND, [{ produto_id: 2, quantidade: 2 }], true, true, 1), /já devolvida/);
+// venda com devolução não se anula nem se edita
+await fails(as(CHEFE, "select public.anular_venda($1, 'Cliente desistiu')", [vendaDev]), /devolução registrada/);
+await fails(
+  as(CHEFE, 'select public.editar_venda($1, \'[{"produto_id":2,"preco":10,"quantidade":1}]\', \'[{"forma":1,"valor":10}]\')', [vendaDev]),
+  /devolução registrada/,
+);
+await fails(as(VEND, "select public.desfazer_devolucao($1, 'registrei errado')", [dev]), /Só a administração/);
+await as(ADM, "select public.desfazer_devolucao($1, 'registrada na venda errada')", [dev]);
+assert.deepEqual(await estoque(), { 1: 12, 2: 4 }, "devolução desfeita: o produto sai de novo");
+assert.deepEqual((await ranking()).find((r) => r[0] === "Vend"), ["Vend", 3, 1, 20, true], "e os combos voltam");
+assert.equal((await caixa(VEND)).devolucoes.find((d) => d.id === dev).desfeita, true);
+assert.match(
+  (await db.query("select descricao from public.eventos where tipo = 'devolucao' order by id limit 1")).rows[0].descricao,
+  /Devolução na venda .* 1× P2\. Produto voltou ao estoque\. Valor devolvido: 10\.00 \(forma 1\)\. Motivo: Cliente não gostou/,
+);
+
+// histórico e auditoria: só administração
+assert.equal((await as(CHEFE, "select * from public.eventos")).length, 0, "chefe não vê o histórico");
+assert.equal((await as(CHEFE, "select * from public.auditoria")).length, 0, "nem a auditoria");
+assert.ok((await as(ADM, "select * from public.eventos where loja_id = 1")).length > 5, "eventos com loja");
+const [aud] = await as(
+  ADM,
+  "select user_id, loja_id, antes, depois from public.auditoria where tabela = 'estoque_movimentos' and acao = 'UPDATE' and registro_id = $1 order by id limit 1",
+  [String(amostraChefe)],
+);
+assert.equal(aud.user_id, CHEFE, "auditoria guarda quem");
+assert.equal(aud.loja_id, 1);
+assert.equal(aud.antes.quantidade, 1);
+assert.equal(aud.depois.quantidade, 2);
+assert.ok(!("produto_id" in aud.depois), "no UPDATE, só o que mudou");
+assert.ok(
+  (await as(ADM, "select 1 from public.auditoria where tabela = 'devolucoes' and acao = 'INSERT'")).length >= 2,
+  "devoluções auditadas",
 );
 
 console.log("todos os testes passaram");

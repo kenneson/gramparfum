@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/session";
 import {
+  ROLES,
   normalizarUsuario,
   usuarioToEmail,
   type Idioma,
@@ -100,6 +101,24 @@ const check = <T extends { error: { message: string } | null }>(r: T) => {
   return r;
 };
 
+// Histórico: a Gestão grava com a chave de serviço (no banco não há usuário), então o autor vai no evento.
+// Sem loja informada, usa uma loja da pessoa (o admin de lojas só vê eventos das lojas dele).
+async function registrar(
+  atorId: string,
+  alvoId: string,
+  descricao: string,
+  lojaId?: number,
+) {
+  const loja = lojaId ?? [...(await lojasDe(alvoId))][0] ?? null;
+  await createAdminClient()
+    .from("eventos")
+    .insert({ tipo: "gestao", descricao, user_id: atorId, loja_id: loja });
+}
+
+const nomeLoja = async (id: number) =>
+  (await createAdminClient().from("lojas").select("nome").eq("id", id).single())
+    .data?.nome ?? `loja ${id}`;
+
 export async function criarPessoa(input: {
   nome: string;
   usuario: string;
@@ -151,6 +170,12 @@ export async function criarPessoa(input: {
       await admin.auth.admin.deleteUser(uid); // não deixar usuário de auth órfão
       throw e;
     }
+    await registrar(
+      ator.id,
+      uid,
+      `${ator.nome} cadastrou ${dados.nome} (usuário ${usuario}) em ${await nomeLoja(input.lojaId)}${habilitado ? ", com acesso" : ", sem acesso"}`,
+      input.lojaId,
+    );
   });
 }
 
@@ -160,10 +185,17 @@ export async function atualizarDados(
 ): Promise<Res> {
   return run(async () => {
     const dados = dadosPessoais(input);
-    await autorizar(id, { permitirSiMesmo: true });
+    const { ator, alvo } = await autorizar(id, { permitirSiMesmo: true });
     check(
       await createAdminClient().from("profiles").update(dados).eq("id", id),
     );
+    const mudou = [
+      alvo.nome !== dados.nome && `nome "${alvo.nome}" → "${dados.nome}"`,
+      (alvo.descricao ?? null) !== dados.descricao && "comentário",
+      alvo.idioma !== dados.idioma && `idioma ${alvo.idioma} → ${dados.idioma}`,
+    ].filter(Boolean);
+    if (mudou.length)
+      await registrar(ator.id, id, `${ator.nome} alterou dados de ${alvo.nome}: ${mudou.join("; ")}`);
   });
 }
 
@@ -172,7 +204,7 @@ export async function atualizarAcesso(
   input: { usuario: string; senha: string; habilitado: boolean },
 ): Promise<Res> {
   return run(async () => {
-    const { alvo } = await autorizar(id, { permitirSiMesmo: true });
+    const { ator, alvo } = await autorizar(id, { permitirSiMesmo: true });
     const usuario = normalizarUsuario(input.usuario);
     if (!USUARIO_RE.test(usuario))
       throw new Error(
@@ -199,28 +231,45 @@ export async function atualizarAcesso(
         .update({ acesso_habilitado: input.habilitado })
         .eq("id", id),
     );
+    const mudou = [
+      usuario !== alvo.usuario && `usuário ${alvo.usuario} → ${usuario}`,
+      input.senha && "senha trocada",
+      input.habilitado !== alvo.acesso_habilitado &&
+        (input.habilitado ? "acesso habilitado" : "acesso desabilitado"),
+    ].filter(Boolean);
+    if (mudou.length)
+      await registrar(ator.id, id, `${ator.nome} alterou o acesso de ${alvo.nome}: ${mudou.join("; ")}`);
   });
 }
 
 export async function atualizarRole(id: string, role: Role): Promise<Res> {
   return run(async () => {
-    const { ator } = await autorizar(id);
+    const { ator, alvo } = await autorizar(id);
     if (ator.role < 100) throw new Error("Só administradores alteram perfis");
     if (ator.role !== 200 && role >= ator.role)
       throw new Error("Você só pode atribuir perfis abaixo do seu");
     check(
       await createAdminClient().from("profiles").update({ role }).eq("id", id),
     );
+    if (role !== alvo.role)
+      await registrar(
+        ator.id,
+        id,
+        `${ator.nome} mudou o perfil de ${alvo.nome}: ${ROLES[alvo.role as Role]} → ${ROLES[role]}`,
+      );
   });
 }
 
+// Tirar alguém da loja é eliminar: só administração (pedido do dono). Colocar, chefe+ também.
 export async function definirLoja(
   id: string,
   lojaId: number,
   ativo: boolean,
 ): Promise<Res> {
   return run(async () => {
-    await autorizar(id);
+    const { ator, alvo } = await autorizar(id);
+    if (!ativo && ator.role < 100)
+      throw new Error("Só a administração tira pessoas da loja");
     if (!(await acessaLoja(lojaId)))
       throw new Error("Sem permissão nesta loja");
     check(
@@ -231,17 +280,30 @@ export async function definirLoja(
           { onConflict: "loja_id,user_id" },
         ),
     );
+    await registrar(
+      ator.id,
+      id,
+      `${ator.nome} ${ativo ? "colocou" : "tirou"} ${alvo.nome} ${ativo ? "em" : "de"} ${await nomeLoja(lojaId)}`,
+      lojaId,
+    );
   });
 }
 
 export async function definirAtivo(id: string, ativo: boolean): Promise<Res> {
   return run(async () => {
-    const { alvo } = await autorizar(id);
+    const { ator, alvo } = await autorizar(id);
+    if (ator.role < 100)
+      throw new Error("Só a administração tira ou volta pessoas da empresa");
     const admin = createAdminClient();
     check(await admin.from("profiles").update({ ativo }).eq("id", id));
     const { error } = await admin.auth.admin.updateUserById(id, {
       ban_duration: ativo && alvo.acesso_habilitado ? "none" : BAN,
     });
     if (error) throw new Error(error.message);
+    await registrar(
+      ator.id,
+      id,
+      `${ator.nome} marcou ${alvo.nome} como ${ativo ? "ativo (voltou à empresa)" : "fora da empresa"}`,
+    );
   });
 }

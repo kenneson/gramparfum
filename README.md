@@ -21,13 +21,13 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 
 | role | perfil | acesso |
 |---|---|---|
-| 50 | Vendedor | Caixa (só as próprias vendas), relatórios e fechamento das próprias vendas, anular venda com usuário e senha do chefe, Ranking, Inventário → lançar e desfazer/corrigir o que lançou |
-| 90 | Chefe de loja | + Gestão de equipe, Histórico, editar/anular venda, trocar vendedor (venda paga e pedido não pago, só ativos), desfazer/corrigir qualquer lançamento de estoque, metas dos vendedores |
-| 100 | Admin. geral de lojas | + cria lojas (vira membro), faturamento, inventário completo (contagem, entradas), cria/edita produtos, altera perfis, vê estoque |
+| 50 | Vendedor | Caixa (só as próprias vendas) e **devolução** no Caixa, valores só do dia de hoje (fechamento de caixa), anular venda com usuário e senha do chefe, Ranking, Inventário → **só contagem** (e corrigir a própria, com justificativa) |
+| 90 | Chefe de loja | + Gestão de equipe (cadastrar e colocar na loja), valores só de hoje, editar/anular venda, trocar vendedor (venda paga e pedido não pago, só ativos), Inventário → **compra, amostra e contagem**. **Não faz devolução** |
+| 100 | Admin. geral de lojas | + tudo das lojas dele: faturamento de qualquer período, doação/estragou, estoque, **Recuperados**, metas (da loja e individuais), produtos, perfis, **remover** (tirar pessoa da loja/empresa, desfazer lançamento de outros, devolução e recuperação), Histórico e auditoria |
 | 200 | Admin. do sistema | tudo, todas as lojas, cria lojas |
 
-**Faturamento só para Admin (>= 100).** Vendedor e chefe: relatório detalhado de um dia por vez; em vários dias
-(Combos/Produtos) só aparecem quantidades, combos e o recebido em dinheiro — sem total de vendas nem outras formas.
+**Faturamento só para Admin (>= 100).** Vendedor e chefe: valores só do dia de hoje (Detalhado e Fechamento do dia,
+sem escolher data); em outros períodos (Combos/Produtos) só quantidades — sem nenhum valor.
 
 ## Arquitetura
 
@@ -46,6 +46,19 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 - **Amostras**: qualquer perfil abre (cada uma baixa 1 unidade); edição só por `editar_amostra`, que grava quem editou
   (`editado_por`) e um evento no Histórico. Inventário e entradas só para admin (policy `estoque_insert`).
 - **Estoque** = último inventário + entradas − amostras − vendas não anuladas desde então (`estoque_loja(loja)`).
+- **Lançamentos por perfil** (`private.pode_lancar`): vendedor só conta; chefe compra, abre amostra e conta; doação e
+  estragou só admin. Corrigir/desfazer exige justificativa (`motivo_edicao`); abaixo do admin, só o que a pessoa lançou.
+  Após a contagem, a tela mostra quantos faltaram/sobraram.
+- **Devolução no Caixa** (`registrar_devolucao`, pelo número do ticket): escolhe na hora se o produto volta ao estoque e se
+  o valor sai do caixa (e de qual forma). Com valor devolvido, os combos saem do ranking. Venda com devolução ativa não se
+  anula nem se edita; só admin desfaz (`desfazer_devolucao`).
+- **Recuperados** (admin): contagem com falta (`divergencias_loja`, contagens a partir de 14/11/2026) se resolve cobrando
+  o valor da pessoa (entra no fechamento do dia pela forma), registrando que o produto voltou (volta ao estoque) ou
+  aceitando a diferença. `relatorio_caixa` leva devoluções e recuperados ao Fechamento do dia.
+- **Metas**: meta da loja (`metas_loja`) vale para todos; a individual (`metas`) vale por cima. Só admin define.
+- **Histórico e auditoria** (admin): `eventos` com descrição legível + `auditoria` (trigger em lojas, pessoas, produtos,
+  vendas, estoque, metas, devoluções, recuperações: quem, quando, antes/depois). A Gestão grava com a chave de serviço,
+  então o autor vai num evento `gestao`.
 - **Gestão de usuários** em Server Actions com a secret key (`app/(app)/gestao/actions.ts`), com checagem hierárquica.
   Login por usuário → e-mail sintético `usuario@gamparfum.local` no Supabase Auth. Acesso desabilitado = usuário banido no Auth.
 

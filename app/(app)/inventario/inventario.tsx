@@ -17,6 +17,7 @@ import {
   LoaderCircle,
   Minus,
   PackageX,
+  PackageCheck,
   Pencil,
   Plus,
   Search,
@@ -59,13 +60,21 @@ import {
 } from "@/components/ui";
 import { SemLoja, useApp } from "@/components/shell";
 import { Exportar } from "@/components/exportar";
+import { Justificar } from "@/components/justificar";
+import { Recuperados } from "./recuperados";
 
 const supabase = createClient();
 
 /* ───────────── Tipos de movimentação ───────────── */
 
 type Tipo =
-  "entrada" | "devolucao" | "amostra" | "doacao" | "avaria" | "inventario";
+  | "entrada"
+  | "devolucao"
+  | "amostra"
+  | "doacao"
+  | "avaria"
+  | "inventario"
+  | "recuperacao";
 type Tom = "ok" | "gold" | "danger" | "neutral";
 
 // sinal: +1 soma, −1 baixa, 0 = contagem (define o total). "venda" só aparece no histórico (vem do caixa).
@@ -91,10 +100,18 @@ const TIPOS: Record<
   devolucao: {
     nome: "Devolução de cliente",
     curto: "Devolução",
-    ajuda: "Produto vendido que o cliente devolveu.",
+    ajuda: "Produto vendido que o cliente devolveu (feita no Caixa).",
     sinal: 1,
     tom: "ok",
     icone: Undo2,
+  },
+  recuperacao: {
+    nome: "Recuperado",
+    curto: "Recuperado",
+    ajuda: "Produto que faltou na contagem e voltou (Recuperados).",
+    sinal: 1,
+    tom: "ok",
+    icone: PackageCheck,
   },
   amostra: {
     nome: "Amostra",
@@ -107,7 +124,7 @@ const TIPOS: Record<
   doacao: {
     nome: "Doação",
     curto: "Doação",
-    ajuda: "Saída com 100% de desconto. Só chefe de loja ou administração.",
+    ajuda: "Saída com 100% de desconto. Só a administração.",
     sinal: -1,
     tom: "gold",
     icone: Gift,
@@ -138,11 +155,19 @@ const TIPOS: Record<
   },
 };
 
+// Devolução é feita no Caixa; recuperação, em Recuperados. Aqui só os lançamentos manuais.
 const GRUPOS: { titulo: string; tipos: Tipo[] }[] = [
-  { titulo: "Entrada", tipos: ["entrada", "devolucao"] },
+  { titulo: "Entrada", tipos: ["entrada"] },
   { titulo: "Saída", tipos: ["amostra", "doacao", "avaria"] },
   { titulo: "Conferência", tipos: ["inventario"] },
 ];
+
+// Mesma regra do banco (private.pode_lancar): vendedor só conta; chefe de loja compra, abre amostra e conta;
+// doação e estragou, só administração.
+const podeLancar = (role: number, t: Tipo) =>
+  t === "inventario" ||
+  ((t === "entrada" || t === "amostra") && role >= 90) ||
+  ((t === "doacao" || t === "avaria") && role >= 100);
 
 const TOM_ICONE: Record<Tom, string> = {
   ok: "bg-ok-soft text-ok",
@@ -155,7 +180,7 @@ const TOM_ICONE: Record<Tom, string> = {
 
 type Abertura = { produto_id: number; quantidade: number; created_at: string };
 type Linha = Estoque & { nome: string; aberturas: Abertura[] }; // aberturas: amostras, mais recente primeiro
-type Aba = "estoque" | "movimentar" | "historico";
+type Aba = "estoque" | "movimentar" | "historico" | "recuperados";
 
 const dia = (iso: string) => dataHora(iso).split(",")[0];
 const baixo = (l: Linha) => l.minimo > 0 && l.estoque <= l.minimo;
@@ -168,15 +193,20 @@ const useNomeLoja = () => {
   return lojas.find((l) => l.id === lojaId)?.nome ?? "";
 };
 
-// Administração (>= 100) vê saldos. Demais perfis lançam (doação só chefe+) e contam "às cegas".
+// Administração (>= 100) vê saldos e resolve faltas (Recuperados). Demais perfis lançam o que podem e contam "às cegas".
 export function Inventario() {
   const { lojaId, t, profile } = useApp();
   const verEstoque = profile.role >= 100;
   const [escolhida, setAba] = useState<Aba>(
     verEstoque ? "estoque" : "movimentar",
   );
-  const aba = !verEstoque && escolhida === "estoque" ? "movimentar" : escolhida;
-  const [tipo, setTipo] = useState<Tipo>(verEstoque ? "entrada" : "amostra");
+  const aba =
+    !verEstoque && (escolhida === "estoque" || escolhida === "recuperados")
+      ? "movimentar"
+      : escolhida;
+  const [tipo, setTipo] = useState<Tipo>(
+    profile.role >= 90 ? "entrada" : "inventario",
+  );
   const rascunhos = useRascunhos(lojaId);
 
   const buscar = useCallback(async () => {
@@ -233,11 +263,16 @@ export function Inventario() {
                 : []),
               { value: "movimentar", label: "Movimentar" },
               { value: "historico", label: "Histórico" },
+              ...(verEstoque
+                ? [{ value: "recuperados" as const, label: "Recuperados" }]
+                : []),
             ]}
           />
         }
       />
-      {!data ? null : linhas.length === 0 ? (
+      {aba === "recuperados" ? (
+        <Recuperados onSaved={carregar} />
+      ) : !data ? null : linhas.length === 0 ? (
         <Empty>Nenhum produto cadastrado nesta loja.</Empty>
       ) : aba === "estoque" ? (
         <EstoqueAba
@@ -587,7 +622,7 @@ function DetalheProduto({
       supabase
         .from("estoque_movimentos")
         .select(
-          "id, created_at, quantidade, quantidade_anterior, tipo, comentario, profiles!estoque_movimentos_created_by_fkey(nome)",
+          "id, created_at, quantidade, quantidade_anterior, tipo, comentario, devolucao_id, recuperacao_id, profiles!estoque_movimentos_created_by_fkey(nome)",
         )
         .eq("produto_id", linha.produto_id)
         .neq("tipo", "inventario")
@@ -706,7 +741,7 @@ function DetalheProduto({
             Desde a última contagem
           </h3>
           <p className="mb-2 text-xs text-muted">
-            Lançou errado? Use <b>Desfazer</b> no lançamento; o estoque volta na hora.
+            Lançou errado? Use <b>Desfazer</b> no lançamento (pede justificativa); o estoque volta na hora.
           </p>
           {!movs ? (
             <p className="text-sm text-muted">Carregando…</p>
@@ -728,7 +763,7 @@ function DetalheProduto({
                       {dataHora(m.created_at)}
                       {m.comentario && ` · ${m.comentario}`}
                     </div>
-                    {m.tipo !== "venda" && <AcoesMov m={m} onFeito={onSaved} />}
+                    <AcoesMov m={m} onFeito={onSaved} />
                   </div>
                   {m.quantidade === 0 ? (
                     <Badge tone="danger">desfeito</Badge>
@@ -781,25 +816,33 @@ function Qtd({
   );
 }
 
-// Desfaz o lançamento inteiro (todos os produtos) numa transação
-async function desfazerLancamento(ids: number[], onSaved: () => void) {
-  const { error } = await supabase.rpc("desfazer_movimentos", { p_ids: ids });
-  if (error)
-    return toast.error("Não foi possível desfazer", { description: error.message });
+// Desfaz o lançamento inteiro (todos os produtos) numa transação, com justificativa
+async function desfazerLancamento(ids: number[], motivo: string, onSaved: () => void) {
+  const { error } = await supabase.rpc("desfazer_movimentos", { p_ids: ids, p_motivo: motivo });
+  if (error) {
+    toast.error("Não foi possível desfazer", { description: error.message });
+    return false;
+  }
   toast.success("Lançamento desfeito", {
-    description: "O estoque voltou como estava. Dá para refazer em Inventário → Histórico.",
+    description: "O estoque voltou como estava. Dá para refazer em Lançados hoje.",
   });
   onSaved();
+  return true;
 }
 
-// Desfazer (quantidade 0) e refazer (volta à quantidade anterior) de um lançamento; contagem só se corrige
+// Desfazer (quantidade 0) e refazer (volta à quantidade anterior) de um lançamento; contagem só se corrige.
+// Tudo com justificativa. Lançamento de devolução/recuperação se desfaz na própria devolução/recuperação.
 type MovEditavel = {
   id: number;
   tipo: Tipo | "venda";
   quantidade: number;
   quantidade_anterior: number | null;
   comentario: string | null;
+  devolucao_id?: number | null;
+  recuperacao_id?: number | null;
 };
+const vinculado = (m: MovEditavel) => !!(m.devolucao_id || m.recuperacao_id);
+
 function AcoesMov({
   m,
   onCorrigir,
@@ -809,19 +852,8 @@ function AcoesMov({
   onCorrigir?: () => void;
   onFeito: () => void;
 }) {
-  const [enviando, setEnviando] = useState(false);
-  async function mudar(quantidade: number, ok: string) {
-    setEnviando(true);
-    const { error } = await supabase.rpc("editar_movimento", {
-      p_id: m.id,
-      p_quantidade: quantidade,
-      p_comentario: m.comentario,
-    });
-    setEnviando(false);
-    if (error) return toast.error("Não alterado", { description: error.message });
-    toast.success(ok);
-    onFeito();
-  }
+  const [acao, setAcao] = useState<{ quantidade: number; titulo: string; ok: string } | null>(null);
+  if (m.tipo === "venda" || vinculado(m)) return null;
   const contagem = m.tipo === "inventario";
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -829,8 +861,9 @@ function AcoesMov({
         <Button
           variant="outline"
           size="sm"
-          disabled={enviando}
-          onClick={() => mudar(0, "Desfeito — o estoque voltou como estava")}
+          onClick={() =>
+            setAcao({ quantidade: 0, titulo: "Desfazer lançamento", ok: "Desfeito — o estoque voltou como estava" })
+          }
         >
           <Undo2 size={14} /> Desfazer
         </Button>
@@ -839,16 +872,45 @@ function AcoesMov({
         <Button
           variant="outline"
           size="sm"
-          disabled={enviando}
-          onClick={() => mudar(m.quantidade_anterior!, "Refeito")}
+          onClick={() => setAcao({ quantidade: m.quantidade_anterior!, titulo: "Refazer lançamento", ok: "Refeito" })}
         >
           <Redo2 size={14} /> Refazer ({m.quantidade_anterior})
         </Button>
       )}
       {onCorrigir && (
-        <Button variant="outline" size="sm" disabled={enviando} onClick={onCorrigir}>
+        <Button variant="outline" size="sm" onClick={onCorrigir}>
           <Pencil size={14} /> Corrigir quantidade
         </Button>
+      )}
+      {acao && (
+        <Justificar
+          titulo={acao.titulo}
+          botao={acao.quantidade === 0 ? "Desfazer" : "Refazer"}
+          aviso={
+            <>
+              <b className="text-ink">{TIPOS[m.tipo].nome}</b>:{" "}
+              {acao.quantidade === 0
+                ? `${m.quantidade} un. ${TIPOS[m.tipo].sinal > 0 ? "saem do" : "voltam ao"} estoque.`
+                : `volta a ${acao.quantidade} un.`}
+            </>
+          }
+          onClose={() => setAcao(null)}
+          onConfirmar={async (motivo) => {
+            const { error } = await supabase.rpc("editar_movimento", {
+              p_id: m.id,
+              p_quantidade: acao.quantidade,
+              p_comentario: m.comentario,
+              p_motivo: motivo,
+            });
+            if (error) {
+              toast.error("Não alterado", { description: error.message });
+              return false;
+            }
+            toast.success(acao.ok);
+            onFeito();
+            return true;
+          }}
+        />
       )}
     </div>
   );
@@ -872,19 +934,29 @@ function Movimentar({
   onSaved: () => void;
 }) {
   const { profile } = useApp();
-  const podeDoar = profile.role >= 90;
-  const atual = tipo === "doacao" && !podeDoar ? "amostra" : tipo;
+  const atual = podeLancar(profile.role, tipo) ? tipo : "inventario";
   const T = TIPOS[atual];
   const ativos = new Set(linhas.map((l) => l.produto_id));
   const contar = (t: Tipo) =>
     rascunhos.de(t).itens.filter((i) => ativos.has(i.produto_id)).length;
+  const grupos = GRUPOS.map((g) => ({
+    ...g,
+    tipos: g.tipos.filter((t) => podeLancar(profile.role, t)),
+  })).filter((g) => g.tipos.length > 0);
+  // "Lançados hoje" recarrega a cada lançamento; o Desfazer do aviso pede justificativa
+  const [versao, setVersao] = useState(0);
+  const [desfazendo, setDesfazendo] = useState<number[] | null>(null);
+  const salvo = () => {
+    onSaved();
+    setVersao((v) => v + 1);
+  };
 
   return (
     <>
-      {/* Tipo: entrada / saída / conferência */}
-      <div className="mb-5 flex flex-col gap-4 lg:flex-row">
-        {GRUPOS.map((g) => {
-          const tipos = g.tipos.filter((t) => t !== "doacao" || podeDoar);
+      {/* Tipo: entrada / saída / conferência (vendedor só conta: sem escolha) */}
+      <div className={cx("mb-5 flex flex-col gap-4 lg:flex-row", grupos.length < 2 && "hidden")}>
+        {grupos.map((g) => {
+          const tipos = g.tipos;
           return (
             <div
               key={g.titulo}
@@ -946,7 +1018,7 @@ function Movimentar({
           linhas={linhas}
           verEstoque={verEstoque}
           rascunhos={rascunhos}
-          onSaved={onSaved}
+          onSaved={salvo}
         />
       ) : (
         <LancamentoForm
@@ -955,7 +1027,27 @@ function Movimentar({
           linhas={linhas}
           verEstoque={verEstoque}
           rascunhos={rascunhos}
-          onSaved={onSaved}
+          onSaved={salvo}
+          onDesfazer={setDesfazendo}
+        />
+      )}
+
+      <section className="mt-10">
+        <h2 className="font-display text-2xl font-bold">Lançados hoje</h2>
+        <p className="mb-3 text-sm text-muted">
+          {profile.role >= 100 ? "Todos os lançamentos de hoje nesta loja." : "Os seus lançamentos de hoje."} Errou? Use{" "}
+          <b className="text-ink">Desfazer</b> ou <b className="text-ink">Corrigir quantidade</b> (pede justificativa).
+        </p>
+        <Historico key={versao} soHoje onSaved={onSaved} />
+      </section>
+
+      {desfazendo && (
+        <Justificar
+          titulo="Desfazer lançamento"
+          botao="Desfazer"
+          aviso={`Os ${desfazendo.length} produto(s) deste lançamento voltam como estavam no estoque.`}
+          onClose={() => setDesfazendo(null)}
+          onConfirmar={(motivo) => desfazerLancamento(desfazendo, motivo, salvo)}
         />
       )}
     </>
@@ -996,12 +1088,14 @@ function LancamentoForm({
   verEstoque,
   rascunhos,
   onSaved,
+  onDesfazer,
 }: {
   tipo: Exclude<Tipo, "inventario">;
   linhas: Linha[];
   verEstoque: boolean;
   rascunhos: Rascunhos;
   onSaved: () => void;
+  onDesfazer: (ids: number[]) => void;
 }) {
   const [busca, setBusca] = useState("");
   const [revisar, setRevisar] = useState(false); // sheet no celular
@@ -1044,7 +1138,7 @@ function LancamentoForm({
     toast.success(`${T.nome} registrada`, {
       description: `${n} produto${n > 1 ? "s" : ""} · ${unidades} unidade${unidades > 1 ? "s" : ""} ${T.sinal > 0 ? "entraram no" : "saíram do"} estoque. Errou? Toque em Desfazer.`,
       duration: 15_000,
-      action: { label: "Desfazer", onClick: () => desfazerLancamento(ids, onSaved) },
+      action: { label: "Desfazer", onClick: () => onDesfazer(ids) },
     });
     onSaved();
   }
@@ -1317,6 +1411,7 @@ function ContagemForm({
   // "Faltam": fotografa os não contados ao ligar; senão a linha some no primeiro dígito digitado
   const [faltando, setFaltando] = useState<Set<number> | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [resultado, setResultado] = useState<{ nome: string; dif: number }[] | null>(null);
   const r = rascunhos.de("inventario");
   const ativos = new Set(linhas.map((l) => l.produto_id));
   const itens = r.itens.filter((i) => ativos.has(i.produto_id));
@@ -1359,15 +1454,24 @@ function ContagemForm({
       return;
     setEnviando(true);
     const ids = await rascunhos.confirmar("inventario", itens, r.comentario);
+    if (ids === null) return setEnviando(false);
+    // resultado calculado pelo banco (esperado do período), mostrado a quem contou
+    const { data } = await supabase
+      .from("estoque_movimentos")
+      .select("quantidade, saldo_anterior, entradas, saidas, produtos(nome)")
+      .in("id", ids);
     setEnviando(false);
-    if (ids === null) return;
-    toast.success("Contagem registrada", {
-      description: verEstoque
-        ? difs
-          ? `${difs} produto${difs > 1 ? "s" : ""} com diferença`
-          : "Tudo bateu"
-        : undefined,
-    });
+    setResultado(
+      ((data ?? []) as unknown as (Pick<Mov, "quantidade" | "saldo_anterior" | "entradas" | "saidas"> & {
+        produtos: { nome: string };
+      })[])
+        .map((m) => ({
+          nome: m.produtos.nome,
+          dif: m.quantidade - ((m.saldo_anterior ?? 0) + (m.entradas ?? 0) - (m.saidas ?? 0)),
+        }))
+        .sort((a, b) => a.dif - b.dif || a.nome.localeCompare(b.nome)),
+    );
+    toast.success("Contagem registrada");
     onSaved();
   }
 
@@ -1528,7 +1632,73 @@ function ContagemForm({
           </div>
         </Card>
       </div>
+      {resultado && (
+        <ResultadoContagem
+          linhas={resultado}
+          admin={verEstoque}
+          onClose={() => setResultado(null)}
+        />
+      )}
     </>
+  );
+}
+
+// Depois de registrar: quantos faltaram/sobraram em cada produto (dif < 0 = faltou)
+function ResultadoContagem({
+  linhas,
+  admin,
+  onClose,
+}: {
+  linhas: { nome: string; dif: number }[];
+  admin: boolean;
+  onClose: () => void;
+}) {
+  const faltas = linhas.filter((l) => l.dif < 0);
+  const sobras = linhas.filter((l) => l.dif > 0);
+  const faltaram = faltas.reduce((s, l) => s - l.dif, 0);
+  return (
+    <Modal open onClose={onClose} title="Resultado da contagem">
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-3 gap-2">
+          <Stat label="Bateram" value={num(linhas.length - faltas.length - sobras.length)} />
+          <Stat label="Faltaram" value={num(faltaram)} hint={faltas.length ? `${faltas.length} produto(s)` : undefined} />
+          <Stat label="Sobraram" value={num(sobras.reduce((s, l) => s + l.dif, 0))} />
+        </div>
+        {faltas.length + sobras.length === 0 ? (
+          <p className="rounded-xl bg-ok-soft px-4 py-3 text-sm font-semibold text-ok">
+            Tudo bateu com o estoque esperado.
+          </p>
+        ) : (
+          <ul className="divide-y divide-line rounded-xl border border-line">
+            {[...faltas, ...sobras].map((l) => (
+              <li key={l.nome} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <span className="min-w-0 truncate font-semibold">{l.nome}</span>
+                {l.dif < 0 ? (
+                  <Badge tone="danger">faltaram {-l.dif}</Badge>
+                ) : (
+                  <Badge tone="gold">sobraram {l.dif}</Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {faltas.length > 0 && (
+          <p className="text-sm text-muted">
+            {admin ? (
+              <>
+                Resolva as faltas em <b className="text-ink">Inventário → Recuperados</b>: cobrar o valor, registrar que o
+                produto voltou ou aceitar a diferença.
+              </>
+            ) : (
+              "A administração vai conferir as faltas. Se contou errado, corrija em Lançados hoje."
+            )}
+          </p>
+        )}
+        <Button size="lg" onClick={onClose}>
+          Entendi
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -1540,6 +1710,9 @@ type Mov = Amostra & {
   saldo_anterior: number | null;
   entradas: number | null;
   saidas: number | null;
+  devolucao_id: number | null;
+  recuperacao_id: number | null;
+  motivo_edicao: string | null;
 };
 type FiltroTipo = "todos" | "entradas" | "saidas" | Tipo | "venda";
 
@@ -1550,10 +1723,11 @@ const diasAtras = (n: number) =>
 const esperadoInv = (m: Mov) =>
   (m.saldo_anterior ?? 0) + (m.entradas ?? 0) - (m.saidas ?? 0);
 
-function Historico({ onSaved }: { onSaved: () => void }) {
+// soHoje: lista curta em Movimentar ("Lançados hoje"), sem filtros nem vendas; abaixo do admin, só os próprios
+function Historico({ onSaved, soHoje }: { onSaved: () => void; soHoje?: boolean }) {
   const { lojaId, profile } = useApp();
   const loja = useNomeLoja();
-  const [de, setDe] = useState(() => diasAtras(6));
+  const [de, setDe] = useState(() => (soHoje ? hojeISO() : diasAtras(6)));
   const [ate, setAte] = useState(hojeISO);
   const [filtro, setFiltro] = useState<FiltroTipo>("todos");
   const [busca, setBusca] = useState("");
@@ -1567,7 +1741,7 @@ function Historico({ onSaved }: { onSaved: () => void }) {
         .from("estoque_movimentos")
         .select(
           `id, produto_id, tipo, quantidade, quantidade_anterior, comentario, created_at, created_by, editado_em,
-           saldo_anterior, entradas, saidas,
+           saldo_anterior, entradas, saidas, devolucao_id, recuperacao_id, motivo_edicao,
            produtos!inner(nome, loja_id),
            abriu:profiles!estoque_movimentos_created_by_fkey(nome),
            editou:profiles!estoque_movimentos_editado_por_fkey(nome)`,
@@ -1613,6 +1787,9 @@ function Historico({ onSaved }: { onSaved: () => void }) {
       saldo_anterior: null,
       entradas: null,
       saidas: null,
+      devolucao_id: null,
+      recuperacao_id: null,
+      motivo_edicao: null,
     }));
     return {
       chave: `${de}|${ate}`,
@@ -1627,6 +1804,8 @@ function Historico({ onSaved }: { onSaved: () => void }) {
   const q = busca.trim().toLowerCase();
   const visiveis = (movs ?? []).filter(
     (m) =>
+      (!soHoje ||
+        (m.tipo !== "venda" && (profile.role >= 100 || m.created_by === profile.id))) &&
       (!q || m.produtos.nome.toLowerCase().includes(q)) &&
       (filtro === "todos" ||
         (filtro === "entradas"
@@ -1635,9 +1814,9 @@ function Historico({ onSaved }: { onSaved: () => void }) {
             ? TIPOS[m.tipo].sinal < 0
             : m.tipo === filtro)),
   );
-  // vendedor altera o que lançou; chefe+ qualquer lançamento. Venda se anula em Relatórios.
+  // abaixo da administração, cada um altera só o que lançou (mesma regra do banco). Venda se anula em Relatórios.
   const podeEditar = (m: Mov) =>
-    m.tipo !== "venda" && (profile.role >= 90 || m.created_by === profile.id);
+    m.tipo !== "venda" && (profile.role >= 100 || m.created_by === profile.id);
 
   // agrupa por dia (lista já vem ordenada)
   const grupos: { dia: string; movs: Mov[] }[] = [];
@@ -1649,7 +1828,12 @@ function Historico({ onSaved }: { onSaved: () => void }) {
 
   return (
     <>
-      <div className="mb-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-[9.5rem_9.5rem_13rem_minmax(0,1fr)_auto] lg:items-end">
+      <div
+        className={cx(
+          "mb-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-[9.5rem_9.5rem_13rem_minmax(0,1fr)_auto] lg:items-end",
+          soHoje && "hidden",
+        )}
+      >
         <div className="grid grid-cols-2 gap-2.5 sm:col-span-2 lg:contents">
           <Field label="De">
             <Input
@@ -1716,7 +1900,7 @@ function Historico({ onSaved }: { onSaved: () => void }) {
       {!movs ? (
         <p className="py-8 text-center text-sm text-muted">Carregando…</p>
       ) : grupos.length === 0 ? (
-        <Empty>Nenhum movimento neste período.</Empty>
+        <Empty>{soHoje ? "Nenhum lançamento hoje." : "Nenhum movimento neste período."}</Empty>
       ) : (
         <div className="flex flex-col gap-5">
           {grupos.map((g) => (
@@ -1786,6 +1970,12 @@ function LinhaHistorico({ m, acoes }: { m: Mov; acoes?: ReactNode }) {
         {m.editado_em && (
           <div className="text-[11px] text-gold-ink">
             alterado por {m.editou?.nome ?? "—"} · {dataHora(m.editado_em)}
+            {m.motivo_edicao && ` · “${m.motivo_edicao}”`}
+          </div>
+        )}
+        {(m.devolucao_id || m.recuperacao_id) && (
+          <div className="text-[11px] text-muted">
+            {m.devolucao_id ? "desfaz-se pela devolução (Relatórios)" : "desfaz-se em Recuperados"}
           </div>
         )}
         {acoes}
@@ -1826,6 +2016,7 @@ function EditarMovimento({
   const contagem = mov.tipo === "inventario";
   const [qtd, setQtd] = useState(String(mov.quantidade));
   const [comentario, setComentario] = useState(mov.comentario ?? "");
+  const [motivo, setMotivo] = useState("");
   const [salvando, setSalvando] = useState(false);
   const n = Number(qtd);
   const valido = qtd !== "" && Number.isInteger(n) && n >= 0;
@@ -1833,11 +2024,14 @@ function EditarMovimento({
   async function salvar(quantidade = n) {
     const com = campoTexto(comentario, "Comentário");
     if (com.erro) return toast.error(com.erro);
+    const mot = campoTexto(motivo, "Justificativa", { obrigatorio: true });
+    if (mot.erro) return toast.error(mot.erro);
     setSalvando(true);
     const { error } = await supabase.rpc("editar_movimento", {
       p_id: mov.id,
       p_quantidade: quantidade,
       p_comentario: com.valor,
+      p_motivo: mot.valor,
     });
     setSalvando(false);
     if (error)
@@ -1887,10 +2081,19 @@ function EditarMovimento({
             />
           </Field>
         </div>
+        <Field label="Justificativa (obrigatória)">
+          <Textarea
+            value={motivo}
+            maxLength={MAX_TEXTO}
+            required
+            placeholder="Ex.: contei a prateleira errada"
+            onChange={(e) => setMotivo(e.target.value)}
+          />
+        </Field>
         <p className="text-xs text-muted">
           Coloque a quantidade correta; o estoque se ajusta sozinho. A
-          alteração fica registrada com o seu nome
-          {!contagem && " e pode ser refeita depois"}.
+          alteração fica registrada com o seu nome e a justificativa
+          {!contagem && ", e pode ser refeita depois"}.
         </p>
         <div className="flex flex-wrap items-center justify-between gap-2">
           {!contagem && mov.quantidade > 0 ? (

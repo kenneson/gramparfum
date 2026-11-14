@@ -10,6 +10,7 @@ import {
   Search,
   ShoppingBag,
   Trash2,
+  Undo2,
   UserRoundPen,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui";
 import { SemLoja, useApp } from "@/components/shell";
 import { Pagamento } from "./pagamento";
+import { Devolucao } from "./devolucao";
 
 type Vendedor = { id: string; nome: string };
 type Pedido = { id: number; nome: string | null; descricao: string | null };
@@ -51,6 +53,7 @@ const mapaEstoque = (e: Estoque[] | null) =>
 export function Caixa() {
   const { profile, lojaId, t } = useApp();
   const [escolhido, setEscolhido] = useState<string | null>(null);
+  const [devolvendo, setDevolvendo] = useState(false);
 
   // Vendedores, produtos e estoque da loja (a tela é remontada ao trocar de loja)
   const buscarLoja = useCallback(async () => {
@@ -97,15 +100,36 @@ export function Caixa() {
       <PageHeader
         title={t.caixa}
         actions={
-          <Link
-            href="/relatorios"
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-semibold transition hover:border-ink/30 active:scale-[0.97]"
-          >
-            <Receipt size={16} className="text-gold" /> Vendas de hoje
-            <span className="hidden text-muted sm:inline">· anular ou trocar vendedor</span>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {/* devolução: vendedor e administração; chefe de loja não (pedido do dono; o banco confere) */}
+            {profile.role !== 90 && (
+              <button
+                type="button"
+                onClick={() => setDevolvendo(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-semibold transition hover:border-ink/30 active:scale-[0.97]"
+              >
+                <Undo2 size={16} className="text-gold" /> Devolução
+              </button>
+            )}
+            <Link
+              href="/relatorios"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-semibold transition hover:border-ink/30 active:scale-[0.97]"
+            >
+              <Receipt size={16} className="text-gold" /> Vendas de hoje
+              <span className="hidden text-muted sm:inline">· anular ou trocar vendedor</span>
+            </Link>
+          </div>
         }
       />
+      {devolvendo && (
+        <Devolucao
+          onClose={() => setDevolvendo(false)}
+          onFeita={() => {
+            setDevolvendo(false);
+            recarregarLoja(); // estoque
+          }}
+        />
+      )}
 
       {/* Vendedores */}
       <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:px-0">

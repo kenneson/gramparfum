@@ -81,7 +81,7 @@ export function Shell({
     { href: "/ranking", label: t.ranking, icon: Trophy, min: 50 },
     { href: "/gestao", label: t.gestao, icon: Users, min: 90 },
     { href: "/inventario", label: t.inventario, icon: Boxes, min: 50 },
-    { href: "/historico", label: t.historico, icon: History, min: 90 },
+    { href: "/historico", label: t.historico, icon: History, min: 100 },
   ].filter((n) => profile.role >= n.min);
 
   const seletorLoja = (escuro: boolean) => (

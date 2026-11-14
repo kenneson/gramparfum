@@ -340,7 +340,8 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
                 <Toggle
                   key={l.id}
                   label={l.nome}
-                  disabled={pending}
+                  // tirar da loja é só da administração; colocar, chefe também
+                  disabled={pending || (profile.role < 100 && p.lojas.includes(l.id))}
                   checked={p.lojas.includes(l.id)}
                   onChange={(v) =>
                     exec(
@@ -357,7 +358,7 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
             <Toggle
               label={p.ativo ? "Ativo" : "Fora da empresa"}
               checked={p.ativo}
-              disabled={pending}
+              disabled={pending || profile.role < 100}
               onChange={(v) =>
                 exec(
                   () => definirAtivo(p.id, v),
@@ -365,6 +366,11 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
                 )
               }
             />
+            {profile.role < 100 && (
+              <p className="mt-2 text-xs text-muted">
+                Só a administração tira pessoas da loja ou da empresa.
+              </p>
+            )}
           </Secao>
         </>
       )}

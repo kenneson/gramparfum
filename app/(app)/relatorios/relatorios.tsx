@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useData } from "@/lib/use-data";
 import Image from "next/image";
-import { Ban, LoaderCircle, MousePointerClick, Pencil, X } from "lucide-react";
+import { Ban, LoaderCircle, MousePointerClick, Pencil, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { FORMAS, dataHora, hojeISO, hora, money, num } from "@/lib/domain";
-import { amostrasDoDia, amostrasPorProduto } from "@/lib/amostras";
+import { TIPO_MOV, movimentosDoDia, porTipoEProduto } from "@/lib/amostras";
+import { Justificar } from "@/components/justificar";
 import { MAX_MOTIVO, campoTexto } from "@/lib/texto";
 import {
   Badge,
@@ -36,6 +37,7 @@ type Venda = {
   created_at: string;
   total: number;
   troco: number;
+  devolvido: number | null; // valor devolvido ao cliente nesta venda (devoluções no caixa)
   anulada: boolean;
   anulacao: { motivo: string | null; por: string | null; em: string | null } | null; // motivo null = anulada no sistema antigo
   vendedor_id: string;
@@ -52,32 +54,74 @@ type Venda = {
 };
 
 type Aba = "detalhado" | "combos" | "produtos" | "fechamento";
+
+// Vem de relatorio_caixa (mesma regra de valores do relatorio_vendas)
+type Devolucao = {
+  id: number;
+  created_at: string;
+  venda_id: number;
+  vendedor_id: string;
+  vendedor: string;
+  por: string | null;
+  motivo: string;
+  volta_estoque: boolean;
+  devolve_valor: boolean;
+  forma: number | null;
+  valor: number | null;
+  desfeita: boolean;
+  itens: { produto_id: number; nome: string; quantidade: number; valor_combo: number }[];
+};
+type Recuperacao = {
+  id: number;
+  created_at: string;
+  tipo: "valor" | "produto" | "acerto";
+  forma: number | null;
+  valor: number;
+  quantidade: number | null; // só administração
+  produto: string | null;
+  pessoa: string | null;
+};
+type Caixa = { devolucoes: Devolucao[]; recuperacoes: Recuperacao[] };
+
 const supabase = createClient();
 const nVenda = (id: number) => String(id).padStart(6, "0");
 const combos = (v: Venda) => v.venda_itens.reduce((s, i) => s + Number(i.valor_combo) * i.quantidade, 0);
+// devolução que conta: ativa e com o dinheiro devolvido (é como cancelar a venda desses produtos)
+const conta = (d: Devolucao) => d.devolve_valor && !d.desfeita;
+const combosDev = (d: Devolucao) => d.itens.reduce((s, i) => s + Number(i.valor_combo) * i.quantidade, 0);
 
 export function Relatorios() {
   const { lojaId, t, profile } = useApp();
   const [aba, setAba] = useState<Aba>("detalhado");
-  const [d1, setD1] = useState(hojeISO);
+  const [d1Escolhido, setD1] = useState(hojeISO);
   const [d2, setD2] = useState(hojeISO);
   const [aberta, setAberta] = useState<Venda | null>(null);
   const [editando, setEditando] = useState<Venda | null>(null);
-  // Faturamento só para a Administração; vendedor/chefe veem o detalhado de um dia por vez (regra também no banco)
+  // Faturamento só para a Administração. Vendedor/chefe: valores só do dia de hoje (fechamento de caixa);
+  // outros períodos só em quantidade de combos/produtos. A regra vale também no banco.
   const restrito = profile.role < 100;
   const umDia = aba === "fechamento" || (restrito && aba === "detalhado");
+  const soHoje = restrito && umDia;
+  const d1 = soHoje ? hojeISO() : d1Escolhido;
   const ate = umDia ? d1 : d2;
 
   const chave = `${d1}|${ate}`;
   const buscar = useCallback(async () => {
     if (!lojaId) return null;
     // ponytail: agrega no cliente; agregar no SQL se o volume por período passar de alguns milhares
-    const { data, error } = await supabase.rpc("relatorio_vendas", { p_loja_id: lojaId, p_de: d1, p_ate: ate });
-    if (error) toast.error("Erro ao carregar vendas", { description: error.message });
-    return { chave: `${d1}|${ate}`, vendas: (data ?? []) as Venda[] };
+    const p = { p_loja_id: lojaId, p_de: d1, p_ate: ate };
+    const [v, c] = await Promise.all([supabase.rpc("relatorio_vendas", p), supabase.rpc("relatorio_caixa", p)]);
+    if (v.error || c.error)
+      toast.error("Erro ao carregar vendas", { description: (v.error ?? c.error)!.message });
+    return {
+      chave: `${d1}|${ate}`,
+      vendas: (v.data ?? []) as Venda[],
+      caixa: (c.data ?? { devolucoes: [], recuperacoes: [] }) as Caixa,
+    };
   }, [lojaId, d1, ate]);
   const [data, carregar] = useData(buscar);
   const vendas = data?.chave === chave ? data.vendas : null; // null = carregando o período atual
+  const caixa = data?.caixa ?? { devolucoes: [], recuperacoes: [] };
 
   if (!lojaId) return <SemLoja />;
 
@@ -98,24 +142,34 @@ export function Relatorios() {
           />
         }
       />
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:flex">
-        <Field label={umDia ? "Dia" : "De"}>
-          <Input
-            type="date"
-            value={d1}
-            max={umDia ? undefined : d2}
-            onChange={(e) => {
-              setD1(e.target.value);
-              if (umDia) setD2(e.target.value);
-            }}
-          />
-        </Field>
-        {!umDia && (
-          <Field label="Até">
-            <Input type="date" value={d2} min={d1} onChange={(e) => setD2(e.target.value)} />
+      {soHoje ? (
+        <p className="mb-6 rounded-xl bg-card px-4 py-3 text-sm text-muted shadow-card">
+          <b className="text-ink">Hoje, {d1.split("-").reverse().join("/")}.</b> Os valores aparecem só do dia de hoje, para
+          o fechamento de caixa. Para outros dias, veja a quantidade de combos em <b className="text-ink">Combos</b>.
+        </p>
+      ) : (
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:flex">
+          <Field label={umDia ? "Dia" : "De"}>
+            <Input
+              type="date"
+              value={d1}
+              max={umDia ? undefined : d2}
+              onChange={(e) => {
+                setD1(e.target.value);
+                if (umDia) setD2(e.target.value);
+              }}
+            />
           </Field>
-        )}
-      </div>
+          {!umDia && (
+            <Field label="Até">
+              <Input type="date" value={d2} min={d1} onChange={(e) => setD2(e.target.value)} />
+            </Field>
+          )}
+        </div>
+      )}
+      {restrito && !umDia && (
+        <p className="-mt-3 mb-5 text-xs text-muted">Em vários dias só aparecem quantidades, sem valores.</p>
+      )}
 
       {vendas === null ? (
         <div className="grid place-items-center py-20 text-muted">
@@ -124,9 +178,13 @@ export function Relatorios() {
       ) : aba === "detalhado" ? (
         <Detalhado vendas={vendas} onAbrir={setAberta} />
       ) : aba === "fechamento" ? (
-        <Fechamento key={d1} vendas={vendas} dia={d1} />
+        <Fechamento key={d1} vendas={vendas} caixa={caixa} dia={d1} onChange={carregar} />
       ) : aba === "combos" ? (
-        <Combos vendas={vendas.filter((v) => !v.anulada)} restrito={restrito} />
+        <Combos
+          vendas={vendas.filter((v) => !v.anulada)}
+          devolucoes={caixa.devolucoes.filter(conta)}
+          restrito={restrito}
+        />
       ) : (
         <Produtos vendas={vendas.filter((v) => !v.anulada)} restrito={restrito} />
       )}
@@ -288,24 +346,28 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
   );
 }
 
-function Combos({ vendas, restrito }: { vendas: Venda[]; restrito: boolean }) {
+// Combos por vendedor; devolução com valor devolvido tira os combos (na data da devolução, como no ranking)
+function Combos({ vendas, devolucoes, restrito }: { vendas: Venda[]; devolucoes: Devolucao[]; restrito: boolean }) {
   const { idioma } = useApp();
-  const linhas = [
-    ...vendas
-      .reduce((m, v) => {
-        const r = m.get(v.vendedor_id) ?? { nome: v.vendedor.nome, combos: 0, dinheiro: 0, vendas: 0 };
-        r.combos += combos(v);
-        r.vendas += Number(v.total);
-        r.dinheiro += v.venda_pagamentos.filter((p) => p.forma === 2).reduce((s, p) => s + Number(p.valor), 0);
-        return m.set(v.vendedor_id, r);
-      }, new Map<string, { nome: string; combos: number; dinheiro: number; vendas: number }>())
-      .values(),
-  ].sort((a, b) => b.combos - a.combos);
+  type L = { nome: string; combos: number; dinheiro: number; vendas: number };
+  const mapa = vendas.reduce((m, v) => {
+    const r = m.get(v.vendedor_id) ?? { nome: v.vendedor.nome, combos: 0, dinheiro: 0, vendas: 0 };
+    r.combos += combos(v);
+    r.vendas += Number(v.total);
+    r.dinheiro += v.venda_pagamentos.filter((p) => p.forma === 2).reduce((s, p) => s + Number(p.valor), 0);
+    return m.set(v.vendedor_id, r);
+  }, new Map<string, L>());
+  for (const d of devolucoes) {
+    const r = mapa.get(d.vendedor_id) ?? { nome: d.vendedor, combos: 0, dinheiro: 0, vendas: 0 };
+    r.combos -= combosDev(d);
+    mapa.set(d.vendedor_id, r);
+  }
+  const linhas = [...mapa.values()].sort((a, b) => b.combos - a.combos);
 
   if (linhas.length === 0) return <Empty>Nenhuma venda no período.</Empty>;
   const soma = (k: "combos" | "dinheiro" | "vendas") => linhas.reduce((s, l) => s + l[k], 0);
 
-  const corta = <T,>(xs: T[]) => (restrito ? xs.slice(0, 3) : xs); // sem a coluna Vendas (faturamento)
+  const corta = <T,>(xs: T[]) => (restrito ? xs.slice(0, 2) : xs); // abaixo do admin: só combos, sem valores
 
   return (
     <Tabela
@@ -484,6 +546,12 @@ function Ticket({
                 <li className="flex justify-between">
                   <span>Troco entregue</span>
                   <span className="num">{money(venda.troco, idioma)}</span>
+                </li>
+              )}
+              {Number(venda.devolvido) > 0 && (
+                <li className="flex justify-between font-semibold text-danger">
+                  <span>Devolvido ao cliente</span>
+                  <span className="num">−{money(venda.devolvido, idioma)}</span>
                 </li>
               )}
             </ul>
@@ -718,22 +786,33 @@ function EditarVenda({ venda, onClose, onSaved }: { venda: Venda; onClose: () =>
   );
 }
 
-// Fechamento do dia: vendas e amostras separadas, para conferir caixa e estoque.
-// Um dia só: vendedor/chefe também veem os valores do dia (relatorio_vendas libera um dia por vez).
-function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
+// Fechamento do dia: caixa (vendas − devoluções + recuperados) e estoque (entradas e saídas), para conferir no fim do dia.
+// Um dia só: vendedor/chefe veem os valores só de hoje (relatorio_vendas/relatorio_caixa liberam só hoje).
+function Fechamento({
+  vendas,
+  caixa,
+  dia,
+  onChange,
+}: {
+  vendas: Venda[];
+  caixa: Caixa;
+  dia: string;
+  onChange: () => void;
+}) {
   const { lojaId, lojas, idioma, profile } = useApp();
   const loja = lojas.find((l) => l.id === lojaId)?.nome ?? "";
   const dataBR = dia.split("-").reverse().join("/");
+  const [desfazendo, setDesfazendo] = useState<Devolucao | null>(null);
 
   const buscar = useCallback(async () => {
     try {
-      return await amostrasDoDia(lojaId!, dia);
+      return await movimentosDoDia(lojaId!, dia);
     } catch (e) {
-      toast.error("Erro ao carregar amostras", { description: (e as Error).message });
+      toast.error("Erro ao carregar o estoque do dia", { description: (e as Error).message });
       return [];
     }
   }, [lojaId, dia]);
-  const [amostras] = useData(buscar);
+  const [movs] = useData(buscar);
 
   const validas = vendas.filter((v) => !v.anulada);
   // ponytail: anulada aparece no dia da venda; anular hoje uma venda de ontem não entra no fechamento de hoje
@@ -753,33 +832,54 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
   ].sort((a, b) => b.qtd - a.qtd || a.nome.localeCompare(b.nome));
   const itens = porProduto.reduce((s, r) => s + r.qtd, 0);
   const total = validas.reduce((s, v) => s + Number(v.total), 0);
+
+  const devolucoes = caixa.devolucoes;
+  const devolvidas = devolucoes.filter(conta);
+  const recebidos = caixa.recuperacoes.filter((r) => r.tipo === "valor");
+  const totalDev = devolvidas.reduce((s, d) => s + Number(d.valor), 0);
+  const totalRec = recebidos.reduce((s, r) => s + Number(r.valor), 0);
+  // o que deve estar no caixa por forma: vendas − devolvido + recuperado
   const porForma = (f: number) =>
     validas.reduce(
       (s, v) => s + v.venda_pagamentos.filter((p) => p.forma === f).reduce((a, p) => a + Number(p.valor), 0),
       0,
-    );
+    ) -
+    devolvidas.filter((d) => d.forma === f).reduce((s, d) => s + Number(d.valor), 0) +
+    recebidos.filter((r) => r.forma === f).reduce((s, r) => s + Number(r.valor), 0);
 
-  const amostrasProd = amostrasPorProduto(amostras ?? []);
-  const abertas = amostrasProd.reduce((s, r) => s + r.qtd, 0);
-  const canceladas = (amostras ?? []).filter((a) => !a.quantidade).length;
+  const estoque = porTipoEProduto(movs ?? []);
+  const soma = (sinal: 1 | -1) =>
+    estoque.filter((r) => TIPO_MOV[r.tipo].sinal === sinal).reduce((s, r) => s + r.qtd, 0);
+  const desfeitos = (movs ?? []).filter((a) => !a.quantidade).length;
 
   return (
     <div className="grid items-start gap-6 xl:grid-cols-2">
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-2xl font-bold">{profile.role === 50 ? "Suas vendas" : "Vendas"}</h2>
+          <h2 className="font-display text-2xl font-bold">{profile.role === 50 ? "Suas vendas" : "Caixa"}</h2>
           <Exportar
-            arquivo={`fechamento-vendas-${dia}`}
-            titulo={`Fechamento de vendas — ${loja}`}
-            subtitulo={`Dia ${dataBR} · ${validas.length} vendas · ${itens} itens · total ${money(total, idioma)}`}
+            arquivo={`fechamento-caixa-${dia}`}
+            titulo={`Fechamento de caixa — ${loja}`}
+            subtitulo={`Dia ${dataBR} · ${validas.length} vendas · ${itens} itens · vendido ${money(total, idioma)} · devolvido ${money(totalDev, idioma)} · recuperado ${money(totalRec, idioma)}`}
             colunas={[
-              { titulo: "Produto", largura: 34 },
-              { titulo: "Qtd vendida", tipo: "int" },
+              { titulo: "Produto / lançamento", largura: 44 },
+              { titulo: "Qtd", tipo: "int" },
               { titulo: "Valor", largura: 14 },
             ]}
             linhas={[
               ...porProduto.map((r) => [r.nome, r.qtd, money(r.valor, idioma)]),
-              ["TOTAL", itens, money(total, idioma)],
+              ["TOTAL VENDIDO", itens, money(total, idioma)],
+              ...devolucoes.map((d) => [
+                `${d.desfeita ? "(DESFEITA) " : ""}DEVOLUÇÃO venda #${nVenda(d.venda_id)} — ${d.itens.map((i) => `${i.quantidade}× ${i.nome}`).join(", ")} — ${d.motivo}`,
+                d.itens.reduce((s, i) => s + i.quantidade, 0),
+                d.devolve_valor ? `−${money(d.valor, idioma)} (${FORMAS[d.forma!]})` : "sem valor",
+              ]),
+              ...recebidos.map((r) => [
+                `RECUPERADO${r.produto ? ` — ${r.quantidade}× ${r.produto}` : ""}${r.pessoa ? ` (${r.pessoa})` : ""}`,
+                r.quantidade,
+                `+${money(r.valor, idioma)} (${FORMAS[r.forma!]})`,
+              ]),
+              ...[1, 2, 3, 4, 5].map((f) => [`NO CAIXA — ${FORMAS[f]}`, null, money(porForma(f), idioma)]),
               ...anuladas.map((v) => [
                 `ANULADA #${nVenda(v.id)} (${v.vendedor.nome}) — ${motivo(v)}`,
                 null,
@@ -796,8 +896,16 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
           />
           <Stat label="Itens vendidos" value={num(itens)} />
           <Stat label="Total vendido" value={money(total, idioma)} />
-          <Stat label="Dinheiro em caixa" value={money(porForma(2), idioma)} />
+          <Stat label="Dinheiro em caixa" value={money(porForma(2), idioma)} hint="já com devoluções e recuperados" />
         </div>
+        {(totalDev > 0 || totalRec > 0) && (
+          <p className="num mb-3 rounded-xl bg-paper px-4 py-2.5 text-sm">
+            Vendido {money(total, idioma)}
+            {totalDev > 0 && <span className="text-danger"> − devolvido {money(totalDev, idioma)}</span>}
+            {totalRec > 0 && <span className="text-ok"> + recuperado {money(totalRec, idioma)}</span>} ={" "}
+            <b>{money(total - totalDev + totalRec, idioma)}</b>
+          </p>
+        )}
         <div className="mb-4 flex flex-wrap gap-2">
           {[1, 3, 4, 5].map((f) => (
             <Badge key={f}>
@@ -814,6 +922,65 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
             foot={["Total", num(itens), money(total, idioma)]}
           />
         )}
+
+        {devolucoes.length > 0 && (
+          <>
+            <h3 className="mt-5 mb-2 text-xs font-bold tracking-wide text-muted uppercase">Devoluções</h3>
+            <Card className="divide-y divide-line">
+              {devolucoes.map((d) => (
+                <div key={d.id} className={cx("px-4 py-2.5 text-sm", d.desfeita && "opacity-55")}>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className={cx("font-semibold", d.desfeita && "line-through")}>
+                      Venda <span className="num">#{nVenda(d.venda_id)}</span> · {d.vendedor}
+                    </span>
+                    <span className="num shrink-0 font-semibold text-danger">
+                      {d.devolve_valor ? `−${money(d.valor, idioma)}` : "sem valor"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted">
+                    {hora(d.created_at)} · {d.itens.map((i) => `${i.quantidade}× ${i.nome}`).join(", ")} · por{" "}
+                    {d.por ?? "—"}
+                    {d.devolve_valor && d.forma && ` · ${FORMAS[d.forma]}`}
+                    {!d.volta_estoque && " · produto NÃO voltou ao estoque"}
+                  </div>
+                  <div className="mt-0.5 text-xs">{d.desfeita ? "Desfeita pela administração" : d.motivo}</div>
+                  {profile.role >= 100 && !d.desfeita && (
+                    <Button variant="outline" size="sm" className="mt-2" onClick={() => setDesfazendo(d)}>
+                      <Undo2 size={14} /> Desfazer devolução
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </Card>
+          </>
+        )}
+
+        {caixa.recuperacoes.length > 0 && (
+          <>
+            <h3 className="mt-5 mb-2 text-xs font-bold tracking-wide text-muted uppercase">Recuperados</h3>
+            <Card className="divide-y divide-line">
+              {caixa.recuperacoes.map((r) => (
+                <div key={r.id} className="flex items-start justify-between gap-3 px-4 py-2.5 text-sm">
+                  <span className="min-w-0">
+                    <span className="block font-semibold">
+                      {r.tipo === "valor" ? "Valor cobrado" : r.tipo === "produto" ? "Produto voltou" : "Diferença aceita"}
+                      {r.produto && ` · ${r.quantidade}× ${r.produto}`}
+                    </span>
+                    <span className="block text-xs text-muted">
+                      {hora(r.created_at)}
+                      {r.pessoa && ` · ${r.pessoa}`}
+                      {r.forma && ` · ${FORMAS[r.forma]}`}
+                    </span>
+                  </span>
+                  {r.tipo === "valor" && (
+                    <span className="num shrink-0 font-semibold text-ok">+{money(r.valor, idioma)}</span>
+                  )}
+                </div>
+              ))}
+            </Card>
+          </>
+        )}
+
         {anuladas.length > 0 && (
           <>
             <h3 className="mt-5 mb-2 text-xs font-bold tracking-wide text-muted uppercase">Vendas anuladas</h3>
@@ -839,24 +1006,26 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-2xl font-bold">Amostras abertas</h2>
+          <h2 className="font-display text-2xl font-bold">Estoque do dia</h2>
           <Exportar
-            arquivo={`fechamento-amostras-${dia}`}
-            titulo={`Fechamento de amostras — ${loja}`}
-            subtitulo={`Dia ${dataBR} · ${abertas} amostra(s) abertas`}
+            arquivo={`fechamento-estoque-${dia}`}
+            titulo={`Entradas e saídas de estoque — ${loja}`}
+            subtitulo={`Dia ${dataBR} · saíram ${soma(-1)} · entraram ${soma(1)} (vendas à parte)`}
             paisagem
             colunas={[
-              { titulo: "Aberta em", tipo: "data" },
+              { titulo: "Data", tipo: "data" },
+              { titulo: "Tipo", largura: 14 },
               { titulo: "Perfume", largura: 32 },
-              { titulo: "Qtd", tipo: "int" },
-              { titulo: "Aberta por", largura: 20 },
+              { titulo: "Qtd", tipo: "dif" },
+              { titulo: "Por", largura: 20 },
               { titulo: "Comentário", largura: 26 },
-              { titulo: "Editada por", largura: 20 },
+              { titulo: "Alterado por", largura: 20 },
             ]}
-            linhas={(amostras ?? []).map((a) => [
+            linhas={(movs ?? []).map((a) => [
               a.created_at,
+              TIPO_MOV[a.tipo!]?.nome ?? a.tipo!,
               a.produtos.nome,
-              a.quantidade,
+              (TIPO_MOV[a.tipo!]?.sinal ?? 1) * a.quantidade,
               a.abriu?.nome ?? "",
               a.comentario,
               a.editou?.nome ?? "",
@@ -864,29 +1033,32 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
           />
         </div>
         <div className="mb-4 grid grid-cols-2 gap-3">
-          <Stat label="Amostras abertas" value={num(abertas)} hint="cada uma baixou 1 unidade" />
+          <Stat label="Saídas" value={num(soma(-1))} hint="amostra, doação, estragou" />
           <Stat
-            label="Perfumes"
-            value={num(amostrasProd.length)}
-            hint={canceladas ? `${canceladas} cancelada(s)` : undefined}
+            label="Entradas"
+            value={num(soma(1))}
+            hint={desfeitos ? `${desfeitos} lançamento(s) desfeito(s)` : "compra, devolução, recuperado"}
           />
         </div>
-        {!amostras ? (
+        {!movs ? (
           <div className="grid place-items-center py-10 text-muted">
             <LoaderCircle className="animate-spin" />
           </div>
-        ) : amostras.length === 0 ? (
-          <Empty>Nenhuma amostra aberta neste dia.</Empty>
+        ) : movs.length === 0 ? (
+          <Empty>Nenhuma entrada ou saída de estoque neste dia (fora as vendas).</Empty>
         ) : (
           <>
             <Tabela
-              head={["Perfume", "Qtd"]}
-              rows={amostrasProd.map((r) => [r.nome, num(r.qtd)])}
-              foot={["Total", num(abertas)]}
+              head={["Tipo", "Perfume", "Qtd"]}
+              rows={estoque.map((r) => [
+                TIPO_MOV[r.tipo].nome,
+                r.nome,
+                `${TIPO_MOV[r.tipo].sinal > 0 ? "+" : "−"}${num(r.qtd)}`,
+              ])}
             />
-            <h3 className="mt-5 mb-2 text-xs font-bold tracking-wide text-muted uppercase">Quem abriu</h3>
+            <h3 className="mt-5 mb-2 text-xs font-bold tracking-wide text-muted uppercase">Quem lançou</h3>
             <Card className="divide-y divide-line">
-              {amostras.map((a) => (
+              {movs.map((a) => (
                 <div
                   key={a.id}
                   className={cx("flex items-start gap-3 px-4 py-2.5 text-sm", !a.quantidade && "opacity-55")}
@@ -895,17 +1067,43 @@ function Fechamento({ vendas, dia }: { vendas: Venda[]; dia: string }) {
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-semibold">{a.produtos.nome}</div>
                     <div className="text-xs text-muted">
-                      {a.abriu?.nome ?? "—"}
-                      {a.editado_em && ` · editada por ${a.editou?.nome ?? "—"}`}
+                      {TIPO_MOV[a.tipo!]?.nome} · {a.abriu?.nome ?? "—"}
+                      {a.editado_em && ` · alterado por ${a.editou?.nome ?? "—"}`}
                     </div>
                   </div>
-                  {a.quantidade ? <Badge tone="gold">−{a.quantidade}</Badge> : <Badge tone="danger">cancelada</Badge>}
+                  {a.quantidade ? (
+                    <Badge tone={TIPO_MOV[a.tipo!]?.sinal > 0 ? "ok" : "gold"}>
+                      {TIPO_MOV[a.tipo!]?.sinal > 0 ? "+" : "−"}
+                      {a.quantidade}
+                    </Badge>
+                  ) : (
+                    <Badge tone="danger">desfeito</Badge>
+                  )}
                 </div>
               ))}
             </Card>
           </>
         )}
       </section>
+
+      {desfazendo && (
+        <Justificar
+          titulo="Desfazer devolução"
+          botao="Desfazer"
+          aviso={`Venda #${nVenda(desfazendo.venda_id)}: ${desfazendo.itens.map((i) => `${i.quantidade}× ${i.nome}`).join(", ")}. O estoque e o caixa voltam como antes da devolução.`}
+          onClose={() => setDesfazendo(null)}
+          onConfirmar={async (m) => {
+            const { error } = await supabase.rpc("desfazer_devolucao", { p_id: desfazendo.id, p_motivo: m });
+            if (error) {
+              toast.error("Não desfeita", { description: error.message });
+              return false;
+            }
+            toast.success("Devolução desfeita");
+            onChange();
+            return true;
+          }}
+        />
+      )}
     </div>
   );
 }

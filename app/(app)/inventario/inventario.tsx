@@ -179,7 +179,8 @@ const TOM_ICONE: Record<Tom, string> = {
 /* ───────────── Dados da loja ───────────── */
 
 type Abertura = { produto_id: number; quantidade: number; created_at: string };
-type Linha = Estoque & { nome: string; aberturas: Abertura[] }; // aberturas: amostras, mais recente primeiro
+// aberturas: amostras, mais recente primeiro. pendente: unidades de diferença de contagem ainda não resolvidas (admin)
+type Linha = Estoque & { nome: string; aberturas: Abertura[]; pendente: number };
 type Aba = "estoque" | "movimentar" | "historico" | "recuperados";
 
 const dia = (iso: string) => dataHora(iso).split(",")[0];
@@ -211,7 +212,7 @@ export function Inventario() {
 
   const buscar = useCallback(async () => {
     if (!lojaId) return [];
-    const [{ data: ps }, { data: es }, { data: as }] = await Promise.all([
+    const [{ data: ps }, { data: es }, { data: as }, { data: dv }] = await Promise.all([
       supabase
         .from("produtos")
         .select("id, nome")
@@ -225,7 +226,16 @@ export function Inventario() {
         .eq("tipo", "amostra")
         .eq("produtos.loja_id", lojaId)
         .order("created_at", { ascending: false }),
+      verEstoque
+        ? supabase.rpc("divergencias_loja", { p_loja_id: lojaId })
+        : Promise.resolve({ data: [] }),
     ]);
+    const pendente = new Map<number, number>();
+    for (const d of (dv ?? []) as { produto_id: number; diferenca: number; resolvido: number }[])
+      pendente.set(
+        d.produto_id,
+        (pendente.get(d.produto_id) ?? 0) + Math.max(0, Math.abs(d.diferenca) - d.resolvido),
+      );
     const est = new Map(
       ((es ?? []) as Estoque[]).map((e) => [e.produto_id, e]),
     );
@@ -239,11 +249,12 @@ export function Inventario() {
               ...est.get(p.id)!,
               nome: p.nome,
               aberturas: aberturas.get(p.id) ?? [],
+              pendente: pendente.get(p.id) ?? 0,
             },
           ]
         : [],
     );
-  }, [lojaId]);
+  }, [lojaId, verEstoque]);
   const [data, carregar] = useData(buscar);
   const linhas = data ?? [];
 
@@ -567,6 +578,9 @@ function EstoqueAba({
                     : "Nunca contado"}
                 </div>
               </div>
+              {l.pendente > 0 && (
+                <Badge tone="danger">contagem não bateu ({l.pendente})</Badge>
+              )}
               {l.estoque <= 0 ? (
                 <Badge tone="danger">Zerado</Badge>
               ) : (
@@ -1446,6 +1460,11 @@ function ContagemForm({
     });
 
   async function confirmar() {
+    // diferença do esperado só entra com explicação (o banco confere também, inclusive para quem conta às cegas)
+    if (difs > 0 && !r.comentario.trim())
+      return toast.error("A contagem não bate com o estoque", {
+        description: "Confira de novo. Se estiver certa, explique a diferença no comentário.",
+      });
     if (
       !confirm(
         `Registrar a contagem de ${itens.length} produto${itens.length > 1 ? "s" : ""}?`,
@@ -1579,22 +1598,33 @@ function ContagemForm({
               style={{ width: `${(itens.length / linhas.length) * 100}%` }}
             />
           </div>
-          {verEstoque && itens.length > 0 && (
-            <p className="text-sm text-muted">
-              {difs ? (
-                <>
-                  <b className="text-danger">{difs}</b> com diferença do
-                  esperado
-                </>
-              ) : (
-                "Até agora tudo bateu com o esperado."
-              )}
-            </p>
+          {verEstoque && itens.length > 0 && !difs && (
+            <p className="text-sm text-muted">Até agora tudo bateu com o esperado.</p>
+          )}
+          {difs > 0 && (
+            <div className="rounded-xl border border-danger/30 bg-danger-soft/50 px-3.5 py-3 text-sm">
+              <p className="flex items-center gap-1.5 font-semibold text-danger">
+                <CircleAlert size={15} className="shrink-0" />
+                {difs} produto{difs > 1 ? "s não batem" : " não bate"} com o estoque
+              </p>
+              <p className="mt-1 text-xs text-ink">
+                Confira de novo. Se estiver certo, explique a diferença abaixo. Ela fica pendente para a administração
+                resolver em Recuperados.
+              </p>
+            </div>
           )}
           <Textarea
             aria-label="Comentário"
             maxLength={MAX_TEXTO}
-            placeholder="Comentário (opcional)"
+            placeholder={
+              difs > 0
+                ? "Explique a diferença (obrigatório)"
+                : verEstoque
+                  ? "Comentário (opcional)"
+                  : "Comentário (obrigatório se não bater com o estoque)"
+            }
+            aria-invalid={difs > 0 && !r.comentario.trim()}
+            className={cx(difs > 0 && !r.comentario.trim() && "border-danger")}
             value={r.comentario}
             onChange={(e) =>
               mudar((r) => ({ ...r, comentario: e.target.value }))
@@ -1682,15 +1712,15 @@ function ResultadoContagem({
             ))}
           </ul>
         )}
-        {faltas.length > 0 && (
+        {faltas.length + sobras.length > 0 && (
           <p className="text-sm text-muted">
             {admin ? (
               <>
-                Resolva as faltas em <b className="text-ink">Inventário → Recuperados</b>: cobrar o valor, registrar que o
-                produto voltou ou aceitar a diferença.
+                As diferenças ficam pendentes em <b className="text-ink">Inventário → Recuperados</b> até serem
+                resolvidas: cobrar o valor, registrar que o produto voltou ou aceitar a diferença.
               </>
             ) : (
-              "A administração vai conferir as faltas. Se contou errado, corrija em Lançados hoje."
+              "As diferenças ficam pendentes até a administração conferir. Se contou errado, corrija em Lançados hoje."
             )}
           </p>
         )}

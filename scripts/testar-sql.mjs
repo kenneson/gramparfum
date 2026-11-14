@@ -400,7 +400,8 @@ assert.match(
 
 // contagem (qualquer membro): snapshot do período calculado no banco
 await db.exec("update public.produtos set estoque_minimo = 7 where id = 2");
-const [{ n: [contagem] }] = await confirmar(VEND, "inventario", [{ produto_id: 1, quantidade: 12 }]);
+await fails(confirmar(VEND, "inventario", [{ produto_id: 1, quantidade: 12 }]), /não bate com o estoque em 1 produto/, "diferença exige explicação");
+const [{ n: [contagem] }] = await confirmar(VEND, "inventario", [{ produto_id: 1, quantidade: 12 }], "faltou um na prateleira");
 await fails(
   as(VEND, "select public.desfazer_movimentos(array[$1::bigint], 'contei errado')", [contagem]),
   /Contagem não se desfaz/,
@@ -415,21 +416,21 @@ assert.deepEqual(await as(VEND, "select produto_id, estoque, minimo from public.
 ]);
 
 // divergência: esperado 13, contado 12 → falta 1; só admin vê e resolve
-const div = async () => (await as(ADM, "select esperado, contado, falta, resolvido from public.divergencias_loja(1)"))[0];
-assert.deepEqual(await div(), { esperado: 13, contado: 12, falta: 1, resolvido: 0 });
+const div = async () => (await as(ADM, "select esperado, contado, diferenca, resolvido, explicacao from public.divergencias_loja(1)"))[0];
+assert.deepEqual(await div(), { esperado: 13, contado: 12, diferenca: -1, resolvido: 0, explicacao: "faltou um na prateleira" });
 assert.equal((await as(CHEFE, "select * from public.divergencias_loja(1)")).length, 0, "chefe não vê divergências");
 const recuperar = (uid, tipo, qtd, valor, forma, pessoa, com) =>
   as(uid, "select public.registrar_recuperacao($1, $2, $3, $4, $5::smallint, $6, $7) id", [
     contagem, tipo, qtd, valor, forma, pessoa, com,
   ]);
 await fails(recuperar(CHEFE, "produto", 1, null, null, null, null), /Só a administração/);
-await fails(recuperar(ADM, "valor", 2, 120, 2, VEND, null), /falta pendente \(1\)/);
+await fails(recuperar(ADM, "valor", 2, 120, 2, VEND, null), /diferença pendente \(1\)/);
 await fails(recuperar(ADM, "valor", 1, 60, null, VEND, null), /forma de pagamento/);
 await fails(recuperar(ADM, "acerto", 1, null, null, VEND, null), /Comentário: campo obrigatório/);
 const [{ id: recProduto }] = await recuperar(ADM, "produto", 1, null, null, null, null);
 assert.deepEqual(await estoque(), { 1: 13, 2: 6 }, "produto recuperado volta ao estoque");
 assert.equal((await div()).resolvido, 1);
-await fails(recuperar(ADM, "valor", 1, 60, 2, VEND, null), /falta pendente \(0\)/);
+await fails(recuperar(ADM, "valor", 1, 60, 2, VEND, null), /diferença pendente \(0\)/);
 await fails(as(CHEFE, "select public.desfazer_recuperacao($1, 'foi engano')", [recProduto]), /Só a administração/);
 await as(ADM, "select public.desfazer_recuperacao($1, 'o produto não tinha voltado')", [recProduto]);
 assert.deepEqual(await estoque(), { 1: 12, 2: 6 }, "recuperação desfeita sai do estoque");
@@ -592,5 +593,22 @@ assert.ok(
   (await as(ADM, "select 1 from public.auditoria where tabela = 'devolucoes' and acao = 'INSERT'")).length >= 2,
   "devoluções auditadas",
 );
+
+// contagem com sobra: também exige explicação e fica pendente; só se resolve aceitando a diferença
+const [{ estoque: p2 }] = await as(ADM, "select estoque from public.estoque_loja(1) where produto_id = 2");
+await confirmar(VEND, "inventario", [{ produto_id: 2, quantidade: p2 }]); // bateu: sem explicação
+await fails(confirmar(VEND, "inventario", [{ produto_id: 2, quantidade: p2 + 1 }]), /não bate com o estoque/);
+const [{ n: [sobra] }] = await confirmar(VEND, "inventario", [{ produto_id: 2, quantidade: p2 + 1 }], "achei um no depósito");
+const divSobra = async () =>
+  (await as(ADM, "select diferenca, resolvido from public.divergencias_loja(1) where movimento_id = $1", [sobra]))[0];
+assert.deepEqual(await divSobra(), { diferenca: 1, resolvido: 0 }, "sobra fica pendente");
+const recSobra = (tipo, com) =>
+  as(ADM, "select public.registrar_recuperacao($1, $2, 1, $3, $4::smallint, null, $5)", [
+    sobra, tipo, tipo === "valor" ? 10 : null, tipo === "valor" ? 2 : null, com,
+  ]);
+await fails(recSobra("valor", null), /só dá para aceitar/);
+await fails(recSobra("produto", null), /só dá para aceitar/);
+await recSobra("acerto", "venda feita no papel e não lançada");
+assert.deepEqual(await divSobra(), { diferenca: 1, resolvido: 1 }, "sobra resolvida");
 
 console.log("todos os testes passaram");

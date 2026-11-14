@@ -14,7 +14,8 @@ import { Justificar } from "@/components/justificar";
 
 const supabase = createClient();
 
-// Vem de divergencias_loja: contagens com falta (contado < esperado) e quanto já foi resolvido
+// Vem de divergencias_loja: contagens que não bateram (diferenca = contado − esperado; < 0 faltou, > 0 sobrou)
+// e quantas unidades já foram resolvidas
 type Div = {
   movimento_id: number;
   produto_id: number;
@@ -25,9 +26,11 @@ type Div = {
   contado_por_id: string | null;
   esperado: number;
   contado: number;
-  falta: number;
+  diferenca: number;
   resolvido: number;
+  explicacao: string | null;
 };
+const pendenteDe = (d: Div) => Math.max(0, Math.abs(d.diferenca) - d.resolvido);
 type TipoRec = "valor" | "produto" | "acerto";
 type Rec = {
   id: number;
@@ -87,27 +90,28 @@ export function Recuperados({ onSaved }: { onSaved: () => void }) {
       </div>
     );
 
-  const pendentes = data.divs.filter((d) => d.falta > d.resolvido);
+  const pendentes = data.divs.filter((d) => pendenteDe(d) > 0);
   const ativas = data.recs.filter((r) => !r.desfeita_em);
   const recebido = ativas.filter((r) => r.tipo === "valor").reduce((s, r) => s + Number(r.valor), 0);
 
   return (
     <>
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Faltas pendentes" value={num(pendentes.reduce((s, d) => s + d.falta - d.resolvido, 0))} hint={`${pendentes.length} contagem(ns)`} />
+        <Stat label="Diferenças pendentes" value={num(pendentes.reduce((s, d) => s + pendenteDe(d), 0))} hint={`${pendentes.length} contagem(ns)`} />
         <Stat label="Valor recuperado" value={money(recebido, idioma)} />
         <Stat label="Produtos que voltaram" value={num(ativas.filter((r) => r.tipo === "produto").reduce((s, r) => s + r.quantidade, 0))} />
         <Stat label="Diferenças aceitas" value={num(ativas.filter((r) => r.tipo === "acerto").reduce((s, r) => s + r.quantidade, 0))} />
       </div>
 
       <section className="mb-10">
-        <h2 className="mb-1 font-display text-2xl font-bold">Faltas para resolver</h2>
+        <h2 className="mb-1 font-display text-2xl font-bold">Contagens que não bateram</h2>
         <p className="mb-3 text-sm text-muted">
-          Contagens que deram menos do que o estoque esperado. Toque em <b className="text-ink">Resolver</b> para cobrar o
-          valor da pessoa, registrar que o produto voltou ou aceitar a diferença.
+          Contou menos ou mais do que o estoque esperado (pelas vendas e lançamentos). Toque em{" "}
+          <b className="text-ink">Resolver</b>: na falta, cobre o valor da pessoa, registre que o produto voltou ou aceite;
+          na sobra, aceite explicando o motivo (ex.: venda ou compra não lançada).
         </p>
         {pendentes.length === 0 ? (
-          <Empty>Nenhuma falta pendente. As contagens bateram ou já foram resolvidas.</Empty>
+          <Empty>Nenhuma diferença pendente. As contagens bateram ou já foram resolvidas.</Empty>
         ) : (
           <Card className="divide-y divide-line">
             {pendentes.map((d) => (
@@ -119,8 +123,11 @@ export function Recuperados({ onSaved }: { onSaved: () => void }) {
                     {d.contado}
                     {d.resolvido > 0 && ` · ${d.resolvido} já resolvido(s)`}
                   </div>
+                  {d.explicacao && <div className="mt-0.5 text-xs">Explicação: “{d.explicacao}”</div>}
                 </div>
-                <Badge tone="danger">faltam {d.falta - d.resolvido}</Badge>
+                <Badge tone="danger">
+                  {d.diferenca < 0 ? "faltam" : "sobram"} {pendenteDe(d)}
+                </Badge>
                 <Button size="sm" onClick={() => setResolvendo(d)}>
                   Resolver
                 </Button>
@@ -240,8 +247,9 @@ export function Recuperados({ onSaved }: { onSaved: () => void }) {
 
 function Resolver({ div, onClose, onSaved }: { div: Div; onClose: () => void; onSaved: () => void }) {
   const { lojaId, idioma } = useApp();
-  const pendente = div.falta - div.resolvido;
-  const [tipo, setTipo] = useState<TipoRec>("valor");
+  const pendente = pendenteDe(div);
+  const sobra = div.diferenca > 0; // sobra só se resolve aceitando a diferença (regra também no banco)
+  const [tipo, setTipo] = useState<TipoRec>(sobra ? "acerto" : "valor");
   const [qtd, setQtd] = useState(String(pendente));
   const [valor, setValor] = useState(String(Number(div.preco) * pendente));
   const [forma, setForma] = useState(2);
@@ -271,7 +279,7 @@ function Resolver({ div, onClose, onSaved }: { div: Div; onClose: () => void; on
     e.preventDefault();
     if (!Number.isInteger(n) || n < 1 || n > pendente) return toast.error(`Quantidade: de 1 a ${pendente}`);
     if (tipo === "valor" && !(v > 0)) return toast.error("Informe o valor recebido");
-    if (tipo !== "produto" && !pessoa) return toast.error("Escolha a pessoa");
+    if (tipo !== "produto" && !sobra && !pessoa) return toast.error("Escolha a pessoa");
     const com = campoTexto(comentario, "Comentário", { obrigatorio: tipo === "acerto" });
     if (com.erro) return toast.error(com.erro);
     setEnviando(true);
@@ -302,13 +310,22 @@ function Resolver({ div, onClose, onSaved }: { div: Div; onClose: () => void; on
         <div className="rounded-xl bg-paper px-4 py-3 text-sm">
           <div className="font-semibold">{div.produto}</div>
           <div className="text-xs text-muted">
-            Contagem de {dataHora(div.contado_em)} por {div.contado_por ?? "—"}: faltam {pendente} · preço{" "}
-            {money(div.preco, idioma)}
+            Contagem de {dataHora(div.contado_em)} por {div.contado_por ?? "—"}: esperado {div.esperado}, contado{" "}
+            {div.contado} → {sobra ? "sobram" : "faltam"} {pendente} · preço {money(div.preco, idioma)}
           </div>
+          {div.explicacao && <div className="mt-1 text-xs">Explicação de quem contou: “{div.explicacao}”</div>}
         </div>
+        {sobra && (
+          <p className="text-sm text-muted">
+            Contou <b className="text-ink">mais</b> do que o sistema esperava. Explique o motivo (ex.: venda feita e não
+            lançada no caixa, compra não lançada) e aceite a diferença.
+          </p>
+        )}
 
         <div className="flex flex-col gap-2" role="radiogroup" aria-label="Como resolver">
-          {(Object.keys(TIPOS_REC) as TipoRec[]).map((t) => {
+          {(Object.keys(TIPOS_REC) as TipoRec[])
+            .filter((t) => !sobra || t === "acerto")
+            .map((t) => {
             const T = TIPOS_REC[t];
             return (
               <button
@@ -350,7 +367,7 @@ function Resolver({ div, onClose, onSaved }: { div: Div; onClose: () => void; on
             />
           </Field>
           {tipo !== "produto" && (
-            <Field label="Pessoa">
+            <Field label={sobra ? "Pessoa (opcional)" : "Pessoa"}>
               <Select value={pessoa} onChange={(e) => setPessoa(e.target.value)}>
                 <option value="">Escolha…</option>
                 {membros.map((m) => (

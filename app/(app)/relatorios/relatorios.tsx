@@ -280,13 +280,8 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
           )}
         />
         <Stat label="Dinheiro em caixa" value={money(porForma(2), idioma)} />
-        <Stat label="Pix" value={money(porForma(1), idioma)} />
-      </div>
-      <div className="mb-6 flex flex-wrap gap-2">
-        {[3, 4, 5].map((f) => (
-          <Badge key={f}>
-            {FORMAS[f]}: {money(porForma(f), idioma)}
-          </Badge>
+        {[1, 3, 4, 5].map((f) => (
+          <Stat key={f} label={FORMAS[f]} value={money(porForma(f), idioma)} />
         ))}
       </div>
 
@@ -906,11 +901,9 @@ function Fechamento({
             <b>{money(total - totalDev + totalRec, idioma)}</b>
           </p>
         )}
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="mb-4 grid grid-cols-2 gap-3">
           {[1, 3, 4, 5].map((f) => (
-            <Badge key={f}>
-              {FORMAS[f]}: {money(porForma(f), idioma)}
-            </Badge>
+            <Stat key={f} label={FORMAS[f]} value={money(porForma(f), idioma)} />
           ))}
         </div>
         {porProduto.length === 0 ? (

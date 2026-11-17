@@ -180,8 +180,9 @@ const TOM_ICONE: Record<Tom, string> = {
 /* ───────────── Dados da loja ───────────── */
 
 type Abertura = { produto_id: number; quantidade: number; created_at: string };
-// aberturas: amostras, mais recente primeiro. pendente: unidades de diferença de contagem ainda não resolvidas (admin)
-type Linha = Estoque & { nome: string; aberturas: Abertura[]; pendente: number };
+// aberturas: amostras, mais recente primeiro. faltam/sobram: unidades de diferença de contagem ainda não resolvidas
+// (chefe de loja e acima); pendente = faltam + sobram
+type Linha = Estoque & { nome: string; aberturas: Abertura[]; pendente: number; faltam: number; sobram: number };
 type Aba = "estoque" | "movimentar" | "historico" | "recuperados";
 
 const dia = (iso: string) => dataHora(iso).split(",")[0];
@@ -229,16 +230,18 @@ export function Inventario({ abrirPendencias = false }: { abrirPendencias?: bool
         .eq("tipo", "amostra")
         .eq("produtos.loja_id", lojaId)
         .order("created_at", { ascending: false }),
-      verEstoque
+      verPendencias
         ? supabase.rpc("divergencias_loja", { p_loja_id: lojaId })
         : Promise.resolve({ data: [] }),
     ]);
-    const pendente = new Map<number, number>();
-    for (const d of (dv ?? []) as { produto_id: number; diferenca: number; resolvido: number }[])
-      pendente.set(
-        d.produto_id,
-        (pendente.get(d.produto_id) ?? 0) + Math.max(0, Math.abs(d.diferenca) - d.resolvido),
-      );
+    const pendente = new Map<number, { faltam: number; sobram: number }>();
+    for (const d of (dv ?? []) as { produto_id: number; diferenca: number; resolvido: number }[]) {
+      const p = pendente.get(d.produto_id) ?? { faltam: 0, sobram: 0 };
+      const n = Math.max(0, Math.abs(d.diferenca) - d.resolvido);
+      if (d.diferenca < 0) p.faltam += n;
+      else p.sobram += n;
+      pendente.set(d.produto_id, p);
+    }
     const est = new Map(
       ((es ?? []) as Estoque[]).map((e) => [e.produto_id, e]),
     );
@@ -252,12 +255,14 @@ export function Inventario({ abrirPendencias = false }: { abrirPendencias?: bool
               ...est.get(p.id)!,
               nome: p.nome,
               aberturas: aberturas.get(p.id) ?? [],
-              pendente: pendente.get(p.id) ?? 0,
+              faltam: pendente.get(p.id)?.faltam ?? 0,
+              sobram: pendente.get(p.id)?.sobram ?? 0,
+              pendente: (pendente.get(p.id)?.faltam ?? 0) + (pendente.get(p.id)?.sobram ?? 0),
             },
           ]
         : [],
     );
-  }, [lojaId, verEstoque]);
+  }, [lojaId, verPendencias]);
   const [data, carregar] = useData(buscar);
   const linhas = data ?? [];
 
@@ -1535,12 +1540,16 @@ function ContagemForm({
           {visiveis.map((l) => {
             const c = contado.get(l.produto_id);
             const dif = c === undefined ? null : c - l.estoque;
+            const anterior = [l.faltam > 0 && `faltam ${l.faltam}`, l.sobram > 0 && `sobram ${l.sobram}`]
+              .filter(Boolean)
+              .join(" e ");
             return (
               <label
                 key={l.produto_id}
                 className={cx(
-                  "flex items-center gap-3 px-4 py-2.5 sm:px-5",
-                  c !== undefined && "bg-ok-soft/40",
+                  "flex items-center gap-2.5 px-4 py-2.5 sm:gap-3 sm:px-5",
+                  dif === 0 && "bg-ok-soft/40",
+                  dif !== null && dif !== 0 && "bg-danger-soft/50",
                 )}
               >
                 <span className="min-w-0 flex-1">
@@ -1550,28 +1559,34 @@ function ContagemForm({
                   <span className="num block text-xs text-muted">
                     {verEstoque && <>esperado {l.estoque} · </>}
                     {l.ultimo_inventario
-                      ? `contagem anterior ${l.saldo_inventario} (${dia(l.ultimo_inventario)})`
+                      ? `anterior ${l.saldo_inventario} (${dia(l.ultimo_inventario)})`
                       : "sem contagem anterior"}
                   </span>
-                  {dif !== null && (
-                    <span
-                      className={cx(
-                        "mt-0.5 inline-flex items-center gap-1 text-xs font-semibold",
-                        dif === 0 ? "text-ok" : "text-danger",
-                      )}
-                    >
-                      {dif === 0 ? (
-                        <>
-                          <CircleCheck size={13} /> bateu com o sistema
-                        </>
-                      ) : (
-                        <>
-                          <CircleAlert size={13} /> {dif < 0 ? `faltam ${-dif}` : `sobram ${dif}`}
-                        </>
-                      )}
+                  {anterior && (
+                    <span className="mt-0.5 flex items-center gap-1 text-[11px] leading-tight font-semibold text-danger">
+                      <CircleAlert size={12} className="shrink-0" /> Pendente de contagem anterior: {anterior}
                     </span>
                   )}
                 </span>
+                {/* resultado de quem está contando, ao lado do campo: bateu, faltam ou sobram */}
+                {dif !== null && (
+                  <span
+                    className={cx(
+                      "num inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold whitespace-nowrap",
+                      dif === 0 ? "bg-ok-soft text-ok" : "bg-danger text-white",
+                    )}
+                  >
+                    {dif === 0 ? (
+                      <>
+                        <CircleCheck size={13} /> bateu
+                      </>
+                    ) : dif < 0 ? (
+                      `faltam ${-dif}`
+                    ) : (
+                      `sobram ${dif}`
+                    )}
+                  </span>
+                )}
                 <input
                   type="number"
                   min={0}

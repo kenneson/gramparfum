@@ -53,8 +53,8 @@ const TIPOS_REC: Record<TipoRec, { nome: string; ajuda: string; icone: typeof Ba
   acerto: { nome: "Aceitar a diferença", ajuda: "Diferença acertada com a pessoa. Nada muda no caixa nem no estoque.", icone: Handshake },
 };
 
-// Administração resolve; chefe de loja (leitura) só vê as contagens pendentes. O banco confere de novo.
-export function Recuperados({ onSaved, leitura = false }: { onSaved: () => void; leitura?: boolean }) {
+// Só administração (a aba só aparece para ela e o banco confere de novo)
+export function Recuperados({ onSaved }: { onSaved: () => void }) {
   const { lojaId, lojas, idioma } = useApp();
   const loja = lojas.find((l) => l.id === lojaId)?.nome ?? "";
   const [resolvendo, setResolvendo] = useState<Div | null>(null);
@@ -63,22 +63,20 @@ export function Recuperados({ onSaved, leitura = false }: { onSaved: () => void;
   const buscar = useCallback(async () => {
     const [d, r] = await Promise.all([
       supabase.rpc("divergencias_loja", { p_loja_id: lojaId! }),
-      leitura
-        ? Promise.resolve({ data: [], error: null })
-        : supabase
-            .from("recuperacoes")
-            .select(
-              `id, created_at, tipo, quantidade, valor, forma, comentario, desfeita_em, motivo_desfeita, produtos(nome),
-               responsavel:profiles!recuperacoes_responsavel_id_fkey(nome), por:profiles!recuperacoes_created_by_fkey(nome)`,
-            )
-            .eq("loja_id", lojaId!)
-            .order("created_at", { ascending: false })
-            .limit(300),
+      supabase
+        .from("recuperacoes")
+        .select(
+          `id, created_at, tipo, quantidade, valor, forma, comentario, desfeita_em, motivo_desfeita, produtos(nome),
+           responsavel:profiles!recuperacoes_responsavel_id_fkey(nome), por:profiles!recuperacoes_created_by_fkey(nome)`,
+        )
+        .eq("loja_id", lojaId!)
+        .order("created_at", { ascending: false })
+        .limit(300),
     ]);
     if (d.error || r.error)
       toast.error("Erro ao carregar recuperados", { description: (d.error ?? r.error)!.message });
     return { divs: (d.data ?? []) as Div[], recs: (r.data ?? []) as unknown as Rec[] };
-  }, [lojaId, leitura]);
+  }, [lojaId]);
   const [data, carregar] = useData(buscar);
   const feito = () => {
     carregar();
@@ -96,26 +94,6 @@ export function Recuperados({ onSaved, leitura = false }: { onSaved: () => void;
   const pendentes = data.divs.filter((d) => pendenteDe(d) > 0);
   const ativas = data.recs.filter((r) => !r.desfeita_em);
   const recebido = ativas.filter((r) => r.tipo === "valor").reduce((s, r) => s + Number(r.valor), 0);
-
-  if (leitura)
-    return (
-      <section>
-        <h2 className="mb-1 font-display text-2xl font-bold">Contagens que não bateram</h2>
-        <p className="mb-3 text-sm text-muted">
-          Diferenças entre o que foi contado e o que o sistema esperava, ainda sem resolver. Confira com quem contou; quem
-          resolve (cobrar, produto voltou ou aceitar) é a <b className="text-ink">administração</b>.
-        </p>
-        {pendentes.length === 0 ? (
-          <Empty>Nenhuma diferença pendente. As contagens bateram ou já foram resolvidas.</Empty>
-        ) : (
-          <Card className="divide-y divide-line">
-            {pendentes.map((d) => (
-              <LinhaPendente key={d.movimento_id} d={d} />
-            ))}
-          </Card>
-        )}
-      </section>
-    );
 
   return (
     <>

@@ -447,14 +447,18 @@ assert.deepEqual(await as(VEND, "select produto_id, estoque, minimo from public.
 // divergência: esperado 13, contado 12 → falta 1; só admin vê e resolve
 const div = async () => (await as(ADM, "select esperado, contado, diferenca, resolvido, explicacao from public.divergencias_loja(1)"))[0];
 assert.deepEqual(await div(), { esperado: 13, contado: 12, diferenca: -1, resolvido: 0, explicacao: "faltou um na prateleira" });
-assert.equal((await as(CHEFE, "select * from public.divergencias_loja(1)")).length, 1, "chefe vê (só leitura)");
+assert.equal((await as(CHEFE, "select * from public.divergencias_loja(1)")).length, 0, "chefe não vê a lista");
 assert.equal((await as(VEND, "select * from public.divergencias_loja(1)")).length, 0, "vendedor não vê a lista");
-// alerta de pendência: resumo por loja para chefe e acima
+// aviso na contagem: todo perfil vê o que falta/sobra por produto (só unidades)
+const pendProd = async (uid) => await as(uid, "select * from public.pendencias_produtos(1)");
+assert.deepEqual(await pendProd(VEND), [{ produto_id: 1, faltam: 1, sobram: 0 }], "vendedor vê a pendência na contagem");
+assert.deepEqual(await pendProd(CHEFE), await pendProd(ADM));
+// alerta ao entrar no sistema: resumo por loja só para a administração
 const pend = async (uid) =>
   (await as(uid, "select loja, produtos, faltam, sobram, desde is not null as tem_data from public.pendencias_estoque()"));
 const umaFalta = [{ loja: "L1", produtos: 1, faltam: 1, sobram: 0, tem_data: true }];
 assert.deepEqual(await pend(ADM), umaFalta, "admin vê a pendência");
-assert.deepEqual(await pend(CHEFE), umaFalta, "chefe vê a pendência");
+assert.deepEqual(await pend(CHEFE), [], "chefe não recebe o alerta");
 assert.deepEqual(await pend(VEND), [], "vendedor não recebe o alerta");
 const recuperar = (uid, tipo, qtd, valor, forma, pessoa, com) =>
   as(uid, "select public.registrar_recuperacao($1, $2, $3, $4, $5::smallint, $6, $7) id", [
@@ -473,6 +477,7 @@ await as(ADM, "select public.desfazer_recuperacao($1, 'o produto não tinha volt
 assert.deepEqual(await estoque(), { 1: 12, 2: 6 }, "recuperação desfeita sai do estoque");
 await recuperar(ADM, "valor", 1, 60, 2, VEND, "descontado do vendedor");
 assert.deepEqual(await pend(ADM), [], "resolvida: alerta some");
+assert.deepEqual(await pendProd(VEND), [], "e o aviso da contagem também");
 assert.deepEqual(await estoque(), { 1: 12, 2: 6 }, "valor cobrado não mexe no estoque");
 const caixa = async (uid, de = hoje, ate = hoje) =>
   (await as(uid, "select public.relatorio_caixa(1, $1, $2) r", [de, ate]))[0].r;
@@ -640,7 +645,8 @@ const [{ n: [sobra] }] = await confirmar(VEND, "inventario", [{ produto_id: 2, q
 const divSobra = async () =>
   (await as(ADM, "select diferenca, resolvido from public.divergencias_loja(1) where movimento_id = $1", [sobra]))[0];
 assert.deepEqual(await divSobra(), { diferenca: 1, resolvido: 0 }, "sobra fica pendente");
-assert.deepEqual(await pend(CHEFE), [{ loja: "L1", produtos: 1, faltam: 0, sobram: 1, tem_data: true }], "sobra também alerta");
+assert.deepEqual(await pend(ADM), [{ loja: "L1", produtos: 1, faltam: 0, sobram: 1, tem_data: true }], "sobra também alerta");
+assert.deepEqual(await pendProd(VEND), [{ produto_id: 2, faltam: 0, sobram: 1 }]);
 const recSobra = (tipo, com) =>
   as(ADM, "select public.registrar_recuperacao($1, $2, 1, $3, $4::smallint, null, $5)", [
     sobra, tipo, tipo === "valor" ? 10 : null, tipo === "valor" ? 2 : null, com,
@@ -649,6 +655,6 @@ await fails(recSobra("valor", null), /só dá para aceitar/);
 await fails(recSobra("produto", null), /só dá para aceitar/);
 await recSobra("acerto", "venda feita no papel e não lançada");
 assert.deepEqual(await divSobra(), { diferenca: 1, resolvido: 1 }, "sobra resolvida");
-assert.deepEqual(await pend(CHEFE), [], "sem pendências");
+assert.deepEqual(await pend(ADM), [], "sem pendências");
 
 console.log("todos os testes passaram");

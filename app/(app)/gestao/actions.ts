@@ -50,8 +50,8 @@ async function lojasDe(userId: string) {
   return new Set((data ?? []).map((m) => m.loja_id as number));
 }
 
-// Regras do legado: admin do sistema gerencia todos; os demais só quem tem nível
-// inferior e divide ao menos uma loja (ou a si mesmo, para dados pessoais).
+// Admin do sistema gerencia todos; admin de lojas, quem tem nível inferior e divide ao menos uma loja.
+// Chefe de loja só cadastra vendedores (criarPessoa) e altera os próprios dados: não edita outras pessoas.
 async function autorizar(
   alvoId: string,
   opts: { permitirSiMesmo?: boolean } = {},
@@ -69,6 +69,8 @@ async function autorizar(
     if (opts.permitirSiMesmo) return { ator, alvo };
     throw new Error("Você não pode alterar isso no seu próprio usuário");
   }
+  if (ator.role < 100)
+    throw new Error("Só a administração altera os dados de outras pessoas");
   if (alvo.role >= ator.role)
     throw new Error("Sem permissão sobre este usuário");
   const [a, b] = await Promise.all([lojasDe(ator.id), lojasDe(alvo.id)]);
@@ -260,7 +262,8 @@ export async function atualizarRole(id: string, role: Role): Promise<Res> {
   });
 }
 
-// Tirar alguém da loja é eliminar: só administração (pedido do dono). Colocar, chefe+ também.
+// Colocar ou tirar alguém de uma loja: só administração. O chefe de loja não escolhe lojas (pedido do dono);
+// quem ele cadastra entra na loja dele.
 export async function definirLoja(
   id: string,
   lojaId: number,
@@ -268,8 +271,8 @@ export async function definirLoja(
 ): Promise<Res> {
   return run(async () => {
     const { ator, alvo } = await autorizar(id);
-    if (!ativo && ator.role < 100)
-      throw new Error("Só a administração tira pessoas da loja");
+    if (ator.role < 100)
+      throw new Error("Só a administração define as lojas de cada pessoa");
     if (!(await acessaLoja(lojaId)))
       throw new Error("Sem permissão nesta loja");
     check(

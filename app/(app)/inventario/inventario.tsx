@@ -181,7 +181,7 @@ const TOM_ICONE: Record<Tom, string> = {
 
 type Abertura = { produto_id: number; quantidade: number; created_at: string };
 // aberturas: amostras, mais recente primeiro. faltam/sobram: unidades de diferença de contagem ainda não resolvidas
-// (chefe de loja e acima); pendente = faltam + sobram
+// (pendencias_produtos, todo perfil); pendente = faltam + sobram
 type Linha = Estoque & { nome: string; aberturas: Abertura[]; pendente: number; faltam: number; sobram: number };
 type Aba = "estoque" | "movimentar" | "historico" | "recuperados";
 
@@ -196,17 +196,16 @@ const useNomeLoja = () => {
   return lojas.find((l) => l.id === lojaId)?.nome ?? "";
 };
 
-// Administração (>= 100) vê saldos e resolve faltas (Recuperados); chefe de loja vê as pendências (só leitura).
-// Na contagem, todos veem a contagem anterior e, ao digitar, se bateu com o sistema.
+// Administração (>= 100) vê saldos e resolve faltas (Recuperados). Na contagem, todos veem a contagem anterior,
+// a diferença ainda pendente de cada produto e, ao digitar, se bateu com o sistema.
 export function Inventario({ abrirPendencias = false }: { abrirPendencias?: boolean }) {
   const { lojaId, t, profile } = useApp();
   const verEstoque = profile.role >= 100;
-  const verPendencias = profile.role >= 90;
   const [escolhida, setAba] = useState<Aba>(
-    abrirPendencias && verPendencias ? "recuperados" : verEstoque ? "estoque" : "movimentar",
+    abrirPendencias && verEstoque ? "recuperados" : verEstoque ? "estoque" : "movimentar",
   );
   const aba =
-    (!verEstoque && escolhida === "estoque") || (!verPendencias && escolhida === "recuperados")
+    !verEstoque && (escolhida === "estoque" || escolhida === "recuperados")
       ? "movimentar"
       : escolhida;
   const [tipo, setTipo] = useState<Tipo>(
@@ -230,18 +229,11 @@ export function Inventario({ abrirPendencias = false }: { abrirPendencias?: bool
         .eq("tipo", "amostra")
         .eq("produtos.loja_id", lojaId)
         .order("created_at", { ascending: false }),
-      verPendencias
-        ? supabase.rpc("divergencias_loja", { p_loja_id: lojaId })
-        : Promise.resolve({ data: [] }),
+      supabase.rpc("pendencias_produtos", { p_loja_id: lojaId }),
     ]);
-    const pendente = new Map<number, { faltam: number; sobram: number }>();
-    for (const d of (dv ?? []) as { produto_id: number; diferenca: number; resolvido: number }[]) {
-      const p = pendente.get(d.produto_id) ?? { faltam: 0, sobram: 0 };
-      const n = Math.max(0, Math.abs(d.diferenca) - d.resolvido);
-      if (d.diferenca < 0) p.faltam += n;
-      else p.sobram += n;
-      pendente.set(d.produto_id, p);
-    }
+    const pendente = new Map(
+      ((dv ?? []) as { produto_id: number; faltam: number; sobram: number }[]).map((d) => [d.produto_id, d]),
+    );
     const est = new Map(
       ((es ?? []) as Estoque[]).map((e) => [e.produto_id, e]),
     );
@@ -262,7 +254,7 @@ export function Inventario({ abrirPendencias = false }: { abrirPendencias?: bool
           ]
         : [],
     );
-  }, [lojaId, verPendencias]);
+  }, [lojaId]);
   const [data, carregar] = useData(buscar);
   const linhas = data ?? [];
 
@@ -282,15 +274,15 @@ export function Inventario({ abrirPendencias = false }: { abrirPendencias?: bool
                 : []),
               { value: "movimentar", label: "Movimentar" },
               { value: "historico", label: "Histórico" },
-              ...(verPendencias
-                ? [{ value: "recuperados" as const, label: verEstoque ? "Recuperados" : "Pendências" }]
+              ...(verEstoque
+                ? [{ value: "recuperados" as const, label: "Recuperados" }]
                 : []),
             ]}
           />
         }
       />
       {aba === "recuperados" ? (
-        <Recuperados onSaved={carregar} leitura={!verEstoque} />
+        <Recuperados onSaved={carregar} />
       ) : !data ? null : linhas.length === 0 ? (
         <Empty>Nenhum produto cadastrado nesta loja.</Empty>
       ) : aba === "estoque" ? (
@@ -1749,8 +1741,8 @@ function ResultadoContagem({
             ) : (
               <>
                 Resolva agora com o <b className="text-ink">chefe de loja</b> ou com a{" "}
-                <b className="text-ink">administração</b>: as diferenças ficam pendentes e aparecem para eles como alerta até
-                serem resolvidas. Se contou errado, corrija em Lançados hoje.
+                <b className="text-ink">administração</b>: as diferenças ficam pendentes, aparecem na contagem e para a
+                administração até serem resolvidas. Se contou errado, corrija em Lançados hoje.
               </>
             )}
           </p>

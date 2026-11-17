@@ -46,7 +46,8 @@ type Ctx = {
 const AppCtx = createContext<Ctx | null>(null);
 export const useApp = () => useContext(AppCtx)!;
 
-// Vem de pendencias_estoque (chefe de loja e acima): contagens com diferença ainda não resolvida, por loja
+// Vem de pendencias_estoque (só administração): contagens com diferença ainda não resolvida, por loja.
+// Vendedor e chefe veem o aviso só na própria contagem (Inventário).
 type Pendencia = { loja_id: number; loja: string; produtos: number; faltam: number; sobram: number; desde: string };
 // Telas que mudam pendências (contagem registrada, recuperação) avisam o alerta para recarregar
 export const avisarPendencias = () => window.dispatchEvent(new Event("pendencias"));
@@ -94,7 +95,7 @@ export function Shell({
   const [, startTransition] = useTransition();
   const idioma = profile.idioma;
   const t = dict(idioma);
-  const pendencias = usePendencias(profile.role >= 90, pathname);
+  const pendencias = usePendencias(profile.role >= 100, pathname);
 
   const escolherLoja = (id: number) => {
     setEscolhida(id);
@@ -263,7 +264,6 @@ export function Shell({
           {pendencias.length > 0 && (
             <AlertaPendencias
               pendencias={pendencias}
-              admin={profile.role >= 100}
               onAbrir={(id) => {
                 if (id !== lojaId) escolherLoja(id);
                 router.push("/inventario?aba=pendencias");
@@ -368,11 +368,9 @@ const diaBR = (iso: string) =>
 // "Ocultar" vale só até fechar o navegador: ao entrar de novo no sistema, o alerta volta.
 function AlertaPendencias({
   pendencias,
-  admin,
   onAbrir,
 }: {
   pendencias: Pendencia[];
-  admin: boolean;
   onAbrir: (lojaId: number) => void;
 }) {
   const assinatura = JSON.stringify(pendencias.map((p) => [p.loja_id, p.faltam, p.sobram]));
@@ -403,8 +401,7 @@ function AlertaPendencias({
       <div className="min-w-0 flex-1">
         <p className="font-bold">Divergência de estoque pendente</p>
         <p className="text-sm text-ink">
-          A última contagem não bateu com o sistema e a diferença ainda não foi resolvida
-          {admin ? "." : ". Confira com a equipe e com a administração."}
+          A última contagem não bateu com o sistema e a diferença ainda não foi resolvida.
         </p>
         <ul className="mt-2 flex flex-col gap-1.5">
           {pendencias.map((p) => (
@@ -415,7 +412,7 @@ function AlertaPendencias({
                 className="text-left text-sm text-ink underline decoration-danger/40 underline-offset-2 hover:decoration-danger"
               >
                 <b>{p.loja}</b>: {p.produtos} produto{p.produtos > 1 ? "s" : ""} com diferença ({unidades(p)}) · desde{" "}
-                {diaBR(p.desde)} — <span className="font-semibold text-danger">{admin ? "resolver" : "ver"}</span>
+                {diaBR(p.desde)} — <span className="font-semibold text-danger">resolver</span>
               </button>
             </li>
           ))}

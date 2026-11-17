@@ -160,7 +160,9 @@ function Equipe() {
                   )}
                 </div>
               </div>
-              <Pencil size={16} className="mt-1 shrink-0 text-muted" />
+              {(profile.role >= 100 || p.id === profile.id) && (
+                <Pencil size={16} className="mt-1 shrink-0 text-muted" />
+              )}
             </button>
           ))}
         </div>
@@ -172,7 +174,12 @@ function Equipe() {
         title={sel?.nome ?? ""}
         wide
       >
-        {sel && <EditarPessoa p={sel} onChange={carregar} />}
+        {sel &&
+          (profile.role >= 100 || sel.id === profile.id ? (
+            <EditarPessoa p={sel} onChange={carregar} />
+          ) : (
+            <VerPessoa p={sel} />
+          ))}
       </Modal>
       <NovaPessoa
         open={novo}
@@ -205,6 +212,36 @@ function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
       </h3>
       {children}
     </section>
+  );
+}
+
+// Chefe de loja só vê os dados de outras pessoas: editar, dar acesso, mudar perfil ou lojas é da administração
+function VerPessoa({ p }: { p: Pessoa }) {
+  const { lojas } = useApp();
+  return (
+    <div className="flex flex-col gap-4 text-sm">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+        <dt className="text-muted">Usuário</dt>
+        <dd className="font-semibold">@{p.usuario}</dd>
+        <dt className="text-muted">Perfil</dt>
+        <dd className="font-semibold">{ROLES[p.role]}</dd>
+        <dt className="text-muted">Acesso</dt>
+        <dd className="font-semibold">{p.acesso_habilitado ? "Pode entrar no sistema" : "Sem acesso"}</dd>
+        <dt className="text-muted">Lojas</dt>
+        <dd className="font-semibold">
+          {p.lojas.map((id) => lojas.find((l) => l.id === id)?.nome).filter(Boolean).join(", ") || "—"}
+        </dd>
+        {p.descricao && (
+          <>
+            <dt className="text-muted">Comentário</dt>
+            <dd>{p.descricao}</dd>
+          </>
+        )}
+      </dl>
+      <p className="rounded-xl bg-paper px-4 py-3 text-muted">
+        Para alterar dados, senha, acesso, perfil ou lojas desta pessoa, fale com a administração.
+      </p>
+    </div>
   );
 }
 

@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { Button, Field, Input, Modal, cx } from "@/components/ui";
 import { useApp } from "@/components/shell";
 
-const ICONES = {
+export const ICONES = {
   1: QrCode,
   2: Banknote,
   3: CreditCard,

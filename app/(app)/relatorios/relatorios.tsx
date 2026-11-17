@@ -27,7 +27,7 @@ import {
   cx,
 } from "@/components/ui";
 import { SemLoja, useApp } from "@/components/shell";
-import { Pagamento } from "../caixa/pagamento";
+import { ICONES, Pagamento } from "../caixa/pagamento";
 import { Exportar } from "@/components/exportar";
 import { anularComChefe } from "./actions";
 
@@ -180,11 +180,11 @@ export function Relatorios() {
       ) : aba === "fechamento" ? (
         <Fechamento key={d1} vendas={vendas} caixa={caixa} dia={d1} onChange={carregar} />
       ) : aba === "combos" ? (
-        <Combos
-          vendas={vendas.filter((v) => !v.anulada)}
-          devolucoes={caixa.devolucoes.filter(conta)}
-          restrito={restrito}
-        />
+        restrito ? (
+          <CombosEquipe de={d1} ate={ate} />
+        ) : (
+          <Combos vendas={vendas.filter((v) => !v.anulada)} devolucoes={caixa.devolucoes.filter(conta)} />
+        )
       ) : (
         <Produtos vendas={vendas.filter((v) => !v.anulada)} restrito={restrito} />
       )}
@@ -232,11 +232,6 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
     (v) => (!vendedor || v.vendedor_id === vendedor) && (!forma || v.venda_pagamentos.some((p) => p.forma === forma)),
   );
   const validas = lista.filter((v) => !v.anulada);
-  const porForma = (f: number) =>
-    validas.reduce(
-      (s, v) => s + v.venda_pagamentos.filter((p) => p.forma === f).reduce((a, p) => a + Number(p.valor), 0),
-      0,
-    );
 
   return (
     <>
@@ -263,7 +258,7 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
         </Field>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:max-w-xl">
         <Stat
           label="Vendas"
           value={money(
@@ -279,11 +274,14 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
             2,
           )}
         />
-        <Stat label="Dinheiro em caixa" value={money(porForma(2), idioma)} />
-        {[1, 3, 4, 5].map((f) => (
-          <Stat key={f} label={FORMAS[f]} value={money(porForma(f), idioma)} />
-        ))}
       </div>
+
+      {/* os cartões ignoram o filtro de forma (senão as outras formas encolhem); tocar num cartão filtra a lista */}
+      <FormasPagamento
+        vendas={vendas.filter((v) => !v.anulada && (!vendedor || v.vendedor_id === vendedor))}
+        forma={forma}
+        onForma={setForma}
+      />
 
       {lista.length === 0 ? (
         <Empty>Nenhuma venda no período.</Empty>
@@ -310,13 +308,14 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
                     #{nVenda(v.id)}
                     <span className="block text-xs font-normal text-muted">{dataHora(v.created_at)}</span>
                     <span className="block truncate text-xs font-semibold text-ink sm:hidden">{v.vendedor.nome}</span>
+                    <span className="flex flex-wrap gap-1 pt-1 font-normal sm:hidden">
+                      <Pagos venda={v} />
+                    </span>
                   </span>
                   <span className="hidden min-w-0 sm:block">
                     <span className="block truncate text-sm font-semibold">{v.vendedor.nome}</span>
                     <span className="flex flex-wrap gap-1 pt-1">
-                      {v.venda_pagamentos.map((p, i) => (
-                        <Badge key={i}>{FORMAS[p.forma]}</Badge>
-                      ))}
+                      <Pagos venda={v} />
                     </span>
                   </span>
                   <span className="num hidden text-right text-sm text-gold-ink sm:block">{num(combos(v), 2)}</span>
@@ -341,15 +340,148 @@ function Detalhado({ vendas, onAbrir }: { vendas: Venda[]; onAbrir: (v: Venda) =
   );
 }
 
+// Nomes como o cliente confere no fechamento; Link de pagamento só aparece se tiver valor no período
+const FORMAS_RELATORIO: [number, string][] = [
+  [1, "Pix"],
+  [2, "Dinheiro"],
+  [3, "Cartão de crédito"],
+  [4, "Cartão de débito à vista"],
+  [5, "Link de pagamento"],
+];
+const pagoEm = (v: Venda, f: number) =>
+  v.venda_pagamentos.filter((p) => p.forma === f).reduce((s, p) => s + Number(p.valor), 0);
+
+// Quanto entrou em cada forma (dinheiro já sem o troco, como fica no caixa). Tocar num cartão filtra a lista.
+function FormasPagamento({
+  vendas,
+  forma,
+  onForma,
+}: {
+  vendas: Venda[];
+  forma: number;
+  onForma: (f: number) => void;
+}) {
+  const { idioma } = useApp();
+  const formas = FORMAS_RELATORIO.map(([f, nome]) => ({
+    f,
+    nome,
+    valor: vendas.reduce((s, v) => s + pagoEm(v, f), 0),
+    vendas: vendas.filter((v) => v.venda_pagamentos.some((p) => p.forma === f)).length,
+  })).filter((x) => x.f !== 5 || x.valor > 0);
+  const total = formas.reduce((s, x) => s + x.valor, 0);
+
+  return (
+    <section className="mb-6">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 className="text-xs font-bold tracking-wide text-muted uppercase">Formas de pagamento</h2>
+        <span className="num text-sm text-muted">
+          Total recebido <b className="font-display text-lg text-ink">{money(total, idioma)}</b>
+        </span>
+      </div>
+      <div className={cx("grid grid-cols-2 gap-3", formas.length > 4 ? "lg:grid-cols-5" : "lg:grid-cols-4")}>
+        {formas.map(({ f, nome, valor, vendas: n }) => {
+          const Icon = ICONES[f as keyof typeof ICONES];
+          const ativo = forma === f;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => onForma(ativo ? 0 : f)}
+              aria-pressed={ativo}
+              className={cx(
+                "min-w-0 rounded-2xl border bg-card p-3.5 text-left shadow-card transition sm:p-4",
+                ativo ? "border-gold ring-2 ring-gold/30" : "border-line/80 hover:border-ink/25",
+              )}
+            >
+              <span className="flex items-center gap-2 text-xs font-semibold text-muted sm:text-sm">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-gold-soft text-gold-ink">
+                  <Icon size={16} />
+                </span>
+                <span className="min-w-0 leading-tight">{nome}</span>
+              </span>
+              <span
+                className={cx(
+                  "num mt-2 block font-display text-2xl leading-tight font-bold break-words sm:text-3xl",
+                  !valor && "text-muted/60",
+                )}
+              >
+                {money(valor, idioma)}
+              </span>
+              <span className="mt-0.5 block text-xs text-muted">
+                {n === 1 ? "1 venda" : `${n} vendas`}
+                {f === 2 && " · já sem o troco"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// Formas da venda com o valor de cada uma, para conferir venda a venda
+function Pagos({ venda }: { venda: Venda }) {
+  const { idioma } = useApp();
+  return venda.venda_pagamentos.map((p, i) => (
+    <Badge key={i}>
+      {FORMAS[p.forma]} <span className="num ml-1 text-ink">{money(p.valor, idioma)}</span>
+    </Badge>
+  ));
+}
+
+// Vendedor e chefe: combos de toda a equipe no período (relatorio_combos), só quantidades — sem valores em R$
+function CombosEquipe({ de, ate }: { de: string; ate: string }) {
+  const { lojaId, profile } = useApp();
+  const chave = `${de}|${ate}`;
+  const buscar = useCallback(async () => {
+    const { data, error } = await supabase.rpc("relatorio_combos", { p_loja_id: lojaId!, p_de: de, p_ate: ate });
+    if (error) toast.error("Erro ao carregar combos", { description: error.message });
+    type L = { vendedor_id: string; nome: string; combos: number; vendas: number };
+    return { chave: `${de}|${ate}`, linhas: (data ?? []) as L[] };
+  }, [lojaId, de, ate]);
+  const [data] = useData(buscar);
+
+  if (data?.chave !== chave)
+    return (
+      <div className="grid place-items-center py-20 text-muted">
+        <LoaderCircle className="animate-spin" />
+      </div>
+    );
+  const linhas = data.linhas;
+  if (linhas.length === 0) return <Empty>Nenhuma venda no período.</Empty>;
+
+  return (
+    <>
+      <p className="mb-3 text-sm text-muted">Combos de todos os vendedores da loja no período.</p>
+      <Tabela
+        head={["Vendedor", "Vendas", "Combos"]}
+        rows={linhas.map((l) => [
+          l.vendedor_id === profile.id ? <b key="n">{l.nome} (você)</b> : l.nome,
+          num(l.vendas),
+          num(Number(l.combos), 2),
+        ])}
+        foot={[
+          "Total",
+          num(linhas.reduce((s, l) => s + l.vendas, 0)),
+          num(
+            linhas.reduce((s, l) => s + Number(l.combos), 0),
+            2,
+          ),
+        ]}
+      />
+    </>
+  );
+}
+
 // Combos por vendedor; devolução com valor devolvido tira os combos (na data da devolução, como no ranking)
-function Combos({ vendas, devolucoes, restrito }: { vendas: Venda[]; devolucoes: Devolucao[]; restrito: boolean }) {
+function Combos({ vendas, devolucoes }: { vendas: Venda[]; devolucoes: Devolucao[] }) {
   const { idioma } = useApp();
   type L = { nome: string; combos: number; dinheiro: number; vendas: number };
   const mapa = vendas.reduce((m, v) => {
     const r = m.get(v.vendedor_id) ?? { nome: v.vendedor.nome, combos: 0, dinheiro: 0, vendas: 0 };
     r.combos += combos(v);
     r.vendas += Number(v.total);
-    r.dinheiro += v.venda_pagamentos.filter((p) => p.forma === 2).reduce((s, p) => s + Number(p.valor), 0);
+    r.dinheiro += pagoEm(v, 2);
     return m.set(v.vendedor_id, r);
   }, new Map<string, L>());
   for (const d of devolucoes) {
@@ -362,13 +494,11 @@ function Combos({ vendas, devolucoes, restrito }: { vendas: Venda[]; devolucoes:
   if (linhas.length === 0) return <Empty>Nenhuma venda no período.</Empty>;
   const soma = (k: "combos" | "dinheiro" | "vendas") => linhas.reduce((s, l) => s + l[k], 0);
 
-  const corta = <T,>(xs: T[]) => (restrito ? xs.slice(0, 2) : xs); // abaixo do admin: só combos, sem valores
-
   return (
     <Tabela
-      head={corta(["Vendedor", "Combos", "Dinheiro", "Vendas"])}
-      rows={linhas.map((l) => corta([l.nome, num(l.combos, 2), money(l.dinheiro, idioma), money(l.vendas, idioma)]))}
-      foot={corta(["Total", num(soma("combos"), 2), money(soma("dinheiro"), idioma), money(soma("vendas"), idioma)])}
+      head={["Vendedor", "Combos", "Dinheiro", "Vendas"]}
+      rows={linhas.map((l) => [l.nome, num(l.combos, 2), money(l.dinheiro, idioma), money(l.vendas, idioma)])}
+      foot={["Total", num(soma("combos"), 2), money(soma("dinheiro"), idioma), money(soma("vendas"), idioma)]}
     />
   );
 }

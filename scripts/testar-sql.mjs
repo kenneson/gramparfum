@@ -225,6 +225,22 @@ await as(
 );
 assert.equal((await rel(VEND, hoje, hoje)).length, 1);
 assert.equal((await rel(CHEFE, hoje, hoje)).length, 2);
+// combos: o vendedor vê os de toda a equipe (só quantidades); venda do Vend = 1 × P1 + 3 × P2 = 8 combos
+const combosDe = async (uid, de, ate) =>
+  Object.fromEntries(
+    (await as(uid, "select * from public.relatorio_combos(1, $1, $2)", [de, ate])).map((r) => [
+      r.nome,
+      [Number(r.combos), r.vendas],
+    ]),
+  );
+assert.deepEqual(await combosDe(VEND, hoje, hoje), { Vend: [8, 1], Chefe: [1, 1] }, "vendedor vê a equipe");
+assert.deepEqual(await combosDe(VEND, ontem, hoje), await combosDe(ADM, ontem, hoje));
+assert.deepEqual(await combosDe(VEND, ontem, ontem), {});
+assert.deepEqual(
+  Object.keys((await as(VEND, "select * from public.relatorio_combos(1, $1, $1)", [hoje]))[0]).sort(),
+  ["combos", "nome", "vendas", "vendedor_id"],
+  "sem colunas de valor",
+);
 // vários dias abaixo da administração: nenhum valor (nem o dinheiro); dia anterior sozinho também não
 assert.deepEqual((await rel(CHEFE, ontem, hoje))[1].venda_pagamentos, []);
 await db.exec(`update public.vendas set created_at = created_at - interval '1 day' where id = ${venda}`);

@@ -3,6 +3,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   useTransition,
   type ReactNode,
@@ -17,8 +18,10 @@ import {
   LogOut,
   ShoppingBag,
   Store,
+  TriangleAlert,
   Trophy,
   Users,
+  X,
 } from "lucide-react";
 import { logout, setIdioma } from "@/app/actions";
 import {
@@ -31,6 +34,7 @@ import {
   type Profile,
 } from "@/lib/domain";
 import { Avatar, cx } from "@/components/ui";
+import { createClient } from "@/lib/supabase/client";
 
 type Ctx = {
   profile: Profile;
@@ -41,6 +45,33 @@ type Ctx = {
 };
 const AppCtx = createContext<Ctx | null>(null);
 export const useApp = () => useContext(AppCtx)!;
+
+// Vem de pendencias_estoque (chefe de loja e acima): contagens com diferença ainda não resolvida, por loja
+type Pendencia = { loja_id: number; loja: string; produtos: number; faltam: number; sobram: number; desde: string };
+// Telas que mudam pendências (contagem registrada, recuperação) avisam o alerta para recarregar
+export const avisarPendencias = () => window.dispatchEvent(new Event("pendencias"));
+const OCULTO_KEY = "pendencias-ocultas";
+
+function usePendencias(ativo: boolean, pathname: string) {
+  const [lista, setLista] = useState<Pendencia[]>([]);
+  const [versao, setVersao] = useState(0);
+  useEffect(() => {
+    const f = () => setVersao((v) => v + 1);
+    window.addEventListener("pendencias", f);
+    return () => window.removeEventListener("pendencias", f);
+  }, []);
+  useEffect(() => {
+    if (!ativo) return;
+    let vivo = true;
+    createClient()
+      .rpc("pendencias_estoque")
+      .then(({ data }) => vivo && setLista((data ?? []) as Pendencia[]));
+    return () => {
+      vivo = false;
+    };
+  }, [ativo, pathname, versao]);
+  return ativo ? lista : [];
+}
 
 export function Shell({
   profile,
@@ -63,6 +94,7 @@ export function Shell({
   const [, startTransition] = useTransition();
   const idioma = profile.idioma;
   const t = dict(idioma);
+  const pendencias = usePendencias(profile.role >= 90, pathname);
 
   const escolherLoja = (id: number) => {
     setEscolhida(id);
@@ -152,11 +184,14 @@ export function Shell({
                       : "text-side-text hover:bg-side-2 hover:text-white",
                   )}
                 >
-                  <Icon
-                    size={20}
-                    strokeWidth={active ? 2.25 : 1.75}
-                    className={cx("shrink-0", active && "text-gold-bright")}
-                  />
+                  <span className="relative shrink-0">
+                    <Icon
+                      size={20}
+                      strokeWidth={active ? 2.25 : 1.75}
+                      className={cx(active && "text-gold-bright")}
+                    />
+                    {href === "/inventario" && pendencias.length > 0 && <PontoAlerta escuro />}
+                  </span>
                   <span className="max-w-full truncate px-1 xl:px-0">
                     {label}
                   </span>
@@ -225,6 +260,16 @@ export function Shell({
           key={lojaId}
           className="mx-auto max-w-[1440px] px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:pt-6 md:px-6 md:pb-10 deitado:pt-4 deitado:pb-10 xl:px-10 xl:pt-8"
         >
+          {pendencias.length > 0 && (
+            <AlertaPendencias
+              pendencias={pendencias}
+              admin={profile.role >= 100}
+              onAbrir={(id) => {
+                if (id !== lojaId) escolherLoja(id);
+                router.push("/inventario?aba=pendencias");
+              }}
+            />
+          )}
           {children}
         </main>
 
@@ -254,7 +299,10 @@ export function Shell({
                         : "group-active:bg-ink/5",
                     )}
                   >
-                    <Icon size={20} strokeWidth={active ? 2.25 : 1.75} />
+                    <span className="relative">
+                      <Icon size={20} strokeWidth={active ? 2.25 : 1.75} />
+                      {href === "/inventario" && pendencias.length > 0 && <PontoAlerta />}
+                    </span>
                   </span>
                   <span className="max-w-full truncate px-0.5">{label}</span>
                 </Link>
@@ -298,6 +346,91 @@ function IdiomaBtn({
         className="rounded-full"
       />
     </button>
+  );
+}
+
+function PontoAlerta({ escuro }: { escuro?: boolean }) {
+  return (
+    <span
+      aria-label="Divergência de estoque pendente"
+      className={cx(
+        "absolute -top-1 -right-1.5 size-2.5 rounded-full bg-danger ring-2",
+        escuro ? "ring-side" : "ring-card",
+      )}
+    />
+  );
+}
+
+const diaBR = (iso: string) =>
+  new Date(iso).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
+
+// Alerta vermelho em todas as telas enquanto houver diferença de contagem sem resolver.
+// "Ocultar" vale só até fechar o navegador: ao entrar de novo no sistema, o alerta volta.
+function AlertaPendencias({
+  pendencias,
+  admin,
+  onAbrir,
+}: {
+  pendencias: Pendencia[];
+  admin: boolean;
+  onAbrir: (lojaId: number) => void;
+}) {
+  const assinatura = JSON.stringify(pendencias.map((p) => [p.loja_id, p.faltam, p.sobram]));
+  const [oculto, setOculto] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem(OCULTO_KEY);
+    } catch {
+      return null;
+    }
+  });
+  // uma pendência nova (ou que mudou) volta a aparecer mesmo depois de ocultar
+  if (oculto === assinatura) return null;
+  const ocultar = () => {
+    setOculto(assinatura);
+    try {
+      sessionStorage.setItem(OCULTO_KEY, assinatura);
+    } catch {}
+  };
+  const unidades = (p: Pendencia) =>
+    [p.faltam > 0 && `faltam ${p.faltam}`, p.sobram > 0 && `sobram ${p.sobram}`].filter(Boolean).join(", ");
+
+  return (
+    <div
+      role="alert"
+      className="mb-5 flex items-start gap-3 rounded-2xl border border-danger/40 bg-danger-soft px-4 py-3.5 text-danger sm:px-5"
+    >
+      <TriangleAlert size={22} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="font-bold">Divergência de estoque pendente</p>
+        <p className="text-sm text-ink">
+          A última contagem não bateu com o sistema e a diferença ainda não foi resolvida
+          {admin ? "." : ". Confira com a equipe e com a administração."}
+        </p>
+        <ul className="mt-2 flex flex-col gap-1.5">
+          {pendencias.map((p) => (
+            <li key={p.loja_id}>
+              <button
+                type="button"
+                onClick={() => onAbrir(p.loja_id)}
+                className="text-left text-sm text-ink underline decoration-danger/40 underline-offset-2 hover:decoration-danger"
+              >
+                <b>{p.loja}</b>: {p.produtos} produto{p.produtos > 1 ? "s" : ""} com diferença ({unidades(p)}) · desde{" "}
+                {diaBR(p.desde)} — <span className="font-semibold text-danger">{admin ? "resolver" : "ver"}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <button
+        type="button"
+        onClick={ocultar}
+        aria-label="Ocultar até a próxima entrada"
+        title="Ocultar até a próxima entrada"
+        className="grid size-9 shrink-0 place-items-center rounded-xl text-danger/70 transition hover:bg-danger/10 hover:text-danger"
+      >
+        <X size={18} />
+      </button>
+    </div>
   );
 }
 

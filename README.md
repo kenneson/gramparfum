@@ -21,8 +21,8 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 
 | role | perfil | acesso |
 |---|---|---|
-| 50 | Vendedor | Caixa (só as próprias vendas) e **devolução** no Caixa, valores só do dia de hoje (fechamento de caixa), anular venda com usuário e senha do chefe, Ranking, Inventário → **só contagem** (e corrigir a própria, com justificativa) |
-| 90 | Chefe de loja | + Gestão de equipe (cadastrar e colocar na loja), valores só de hoje, editar/anular venda, trocar vendedor (venda paga e pedido não pago, só ativos), Inventário → **compra, amostra e contagem**. **Não faz devolução** |
+| 50 | Vendedor | Caixa (só as próprias vendas) e **devolução** no Caixa, valores só do dia de hoje (fechamento de caixa), anular venda com usuário e senha do chefe, Ranking, Inventário → **só contagem**: vê a contagem anterior e, ao digitar, se bateu ou quanto faltou/sobrou (e corrige a própria, com justificativa) |
+| 90 | Chefe de loja | + Gestão de equipe (cadastrar e colocar na loja), valores só de hoje, editar/anular venda, trocar vendedor (venda paga e pedido não pago, só ativos), Inventário → **compra, amostra e contagem** e **Pendências** (só leitura). **Não faz devolução** |
 | 100 | Admin. geral de lojas | + tudo das lojas dele: faturamento de qualquer período, doação/estragou, estoque, **Recuperados**, metas (da loja e individuais), produtos, perfis, **remover** (tirar pessoa da loja/empresa, desfazer lançamento de outros, devolução e recuperação), Histórico e auditoria |
 | 200 | Admin. do sistema | tudo, todas as lojas, cria lojas |
 
@@ -56,6 +56,9 @@ Na aba **Combos**, vendedor e chefe veem os combos de **todos os vendedores da l
 - **Recuperados** (admin): contagem com falta (`divergencias_loja`, contagens a partir de 14/11/2026) se resolve cobrando
   o valor da pessoa (entra no fechamento do dia pela forma), registrando que o produto voltou (volta ao estoque) ou
   aceitando a diferença. `relatorio_caixa` leva devoluções e recuperados ao Fechamento do dia.
+- **Alerta de divergência** (chefe+): `pendencias_estoque()` resume por loja as diferenças de contagem sem resolver; o
+  shell mostra uma faixa vermelha em todas as telas e um ponto no menu Inventário. Ocultar vale até fechar o navegador.
+  O chefe vê a lista em Inventário → Pendências (`divergencias_loja`, só leitura); quem resolve é a administração.
 - **Metas**: meta da loja (`metas_loja`) vale para todos; a individual (`metas`) vale por cima. Só admin define.
 - **Histórico e auditoria** (admin): `eventos` com descrição legível + `auditoria` (trigger em lojas, pessoas, produtos,
   vendas, estoque, metas, devoluções, recuperações: quem, quando, antes/depois). A Gestão grava com a chave de serviço,

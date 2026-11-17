@@ -11,6 +11,7 @@ import {
 import {
   Check,
   CircleAlert,
+  CircleCheck,
   ClipboardCheck,
   FlaskConical,
   Gift,
@@ -58,7 +59,7 @@ import {
   Textarea,
   cx,
 } from "@/components/ui";
-import { SemLoja, useApp } from "@/components/shell";
+import { SemLoja, avisarPendencias, useApp } from "@/components/shell";
 import { Exportar } from "@/components/exportar";
 import { Justificar } from "@/components/justificar";
 import { Recuperados } from "./recuperados";
@@ -194,15 +195,17 @@ const useNomeLoja = () => {
   return lojas.find((l) => l.id === lojaId)?.nome ?? "";
 };
 
-// Administração (>= 100) vê saldos e resolve faltas (Recuperados). Demais perfis lançam o que podem e contam "às cegas".
-export function Inventario() {
+// Administração (>= 100) vê saldos e resolve faltas (Recuperados); chefe de loja vê as pendências (só leitura).
+// Na contagem, todos veem a contagem anterior e, ao digitar, se bateu com o sistema.
+export function Inventario({ abrirPendencias = false }: { abrirPendencias?: boolean }) {
   const { lojaId, t, profile } = useApp();
   const verEstoque = profile.role >= 100;
+  const verPendencias = profile.role >= 90;
   const [escolhida, setAba] = useState<Aba>(
-    verEstoque ? "estoque" : "movimentar",
+    abrirPendencias && verPendencias ? "recuperados" : verEstoque ? "estoque" : "movimentar",
   );
   const aba =
-    !verEstoque && (escolhida === "estoque" || escolhida === "recuperados")
+    (!verEstoque && escolhida === "estoque") || (!verPendencias && escolhida === "recuperados")
       ? "movimentar"
       : escolhida;
   const [tipo, setTipo] = useState<Tipo>(
@@ -274,15 +277,15 @@ export function Inventario() {
                 : []),
               { value: "movimentar", label: "Movimentar" },
               { value: "historico", label: "Histórico" },
-              ...(verEstoque
-                ? [{ value: "recuperados" as const, label: "Recuperados" }]
+              ...(verPendencias
+                ? [{ value: "recuperados" as const, label: verEstoque ? "Recuperados" : "Pendências" }]
                 : []),
             ]}
           />
         }
       />
       {aba === "recuperados" ? (
-        <Recuperados onSaved={carregar} />
+        <Recuperados onSaved={carregar} leitura={!verEstoque} />
       ) : !data ? null : linhas.length === 0 ? (
         <Empty>Nenhum produto cadastrado nesta loja.</Empty>
       ) : aba === "estoque" ? (
@@ -1409,7 +1412,8 @@ function QtdInput({
   );
 }
 
-// Contagem: todos os produtos com campo "contado"; administração vê esperado e diferença, demais contam às cegas
+// Contagem: todos os produtos com campo "contado" e a contagem anterior. Ao digitar, qualquer perfil vê se bateu com o
+// sistema ou quanto faltou/sobrou, para resolver na hora. Administração vê também o esperado antes de contar.
 function ContagemForm({
   linhas,
   verEstoque,
@@ -1436,13 +1440,9 @@ function ContagemForm({
       (!q || l.nome.toLowerCase().includes(q)) &&
       (!faltando || faltando.has(l.produto_id)),
   );
-  const difs = verEstoque
-    ? itens.filter(
-        (i) =>
-          i.quantidade !==
-          linhas.find((l) => l.produto_id === i.produto_id)!.estoque,
-      ).length
-    : 0;
+  const difs = itens.filter(
+    (i) => i.quantidade !== linhas.find((l) => l.produto_id === i.produto_id)!.estoque,
+  ).length;
 
   const mudar = (fn: (r: Rascunho) => Rascunho) =>
     rascunhos.alterar("inventario", fn);
@@ -1460,7 +1460,7 @@ function ContagemForm({
     });
 
   async function confirmar() {
-    // diferença do esperado só entra com explicação (o banco confere também, inclusive para quem conta às cegas)
+    // diferença do esperado só entra com explicação (o banco confere também)
     if (difs > 0 && !r.comentario.trim())
       return toast.error("A contagem não bate com o estoque", {
         description: "Confira de novo. Se estiver certa, explique a diferença no comentário.",
@@ -1491,6 +1491,7 @@ function ContagemForm({
         .sort((a, b) => a.dif - b.dif || a.nome.localeCompare(b.nome)),
     );
     toast.success("Contagem registrada");
+    avisarPendencias();
     onSaved();
   }
 
@@ -1546,19 +1547,28 @@ function ContagemForm({
                   <span className="block truncate text-sm font-semibold">
                     {l.nome}
                   </span>
-                  {verEstoque && (
-                    <span className="num text-xs text-muted">
-                      esperado {l.estoque}
-                      {dif !== null &&
-                        (dif === 0 ? (
-                          <span className="text-ok"> · bateu</span>
-                        ) : (
-                          <span className="text-danger">
-                            {" "}
-                            · {dif > 0 ? "+" : "−"}
-                            {Math.abs(dif)}
-                          </span>
-                        ))}
+                  <span className="num block text-xs text-muted">
+                    {verEstoque && <>esperado {l.estoque} · </>}
+                    {l.ultimo_inventario
+                      ? `contagem anterior ${l.saldo_inventario} (${dia(l.ultimo_inventario)})`
+                      : "sem contagem anterior"}
+                  </span>
+                  {dif !== null && (
+                    <span
+                      className={cx(
+                        "mt-0.5 inline-flex items-center gap-1 text-xs font-semibold",
+                        dif === 0 ? "text-ok" : "text-danger",
+                      )}
+                    >
+                      {dif === 0 ? (
+                        <>
+                          <CircleCheck size={13} /> bateu com o sistema
+                        </>
+                      ) : (
+                        <>
+                          <CircleAlert size={13} /> {dif < 0 ? `faltam ${-dif}` : `sobram ${dif}`}
+                        </>
+                      )}
                     </span>
                   )}
                 </span>
@@ -1598,8 +1608,10 @@ function ContagemForm({
               style={{ width: `${(itens.length / linhas.length) * 100}%` }}
             />
           </div>
-          {verEstoque && itens.length > 0 && !difs && (
-            <p className="text-sm text-muted">Até agora tudo bateu com o esperado.</p>
+          {itens.length > 0 && !difs && (
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-ok">
+              <CircleCheck size={15} className="shrink-0" /> Até agora tudo bateu com o sistema.
+            </p>
           )}
           {difs > 0 && (
             <div className="rounded-xl border border-danger/30 bg-danger-soft/50 px-3.5 py-3 text-sm">
@@ -1608,8 +1620,10 @@ function ContagemForm({
                 {difs} produto{difs > 1 ? "s não batem" : " não bate"} com o estoque
               </p>
               <p className="mt-1 text-xs text-ink">
-                Confira de novo. Se estiver certo, explique a diferença abaixo. Ela fica pendente para a administração
-                resolver em Recuperados.
+                Confira de novo. Se estiver certo, explique a diferença abaixo
+                {verEstoque
+                  ? ". Ela fica pendente para resolver em Recuperados."
+                  : " e resolva na hora com o chefe de loja ou com a administração. Ela fica pendente até ser resolvida."}
               </p>
             </div>
           )}
@@ -1619,9 +1633,7 @@ function ContagemForm({
             placeholder={
               difs > 0
                 ? "Explique a diferença (obrigatório)"
-                : verEstoque
-                  ? "Comentário (opcional)"
-                  : "Comentário (obrigatório se não bater com o estoque)"
+                : "Comentário (opcional)"
             }
             aria-invalid={difs > 0 && !r.comentario.trim()}
             className={cx(difs > 0 && !r.comentario.trim() && "border-danger")}
@@ -1720,7 +1732,11 @@ function ResultadoContagem({
                 resolvidas: cobrar o valor, registrar que o produto voltou ou aceitar a diferença.
               </>
             ) : (
-              "As diferenças ficam pendentes até a administração conferir. Se contou errado, corrija em Lançados hoje."
+              <>
+                Resolva agora com o <b className="text-ink">chefe de loja</b> ou com a{" "}
+                <b className="text-ink">administração</b>: as diferenças ficam pendentes e aparecem para eles como alerta até
+                serem resolvidas. Se contou errado, corrija em Lançados hoje.
+              </>
             )}
           </p>
         )}

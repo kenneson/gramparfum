@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Bookmark,
+  FlaskConical,
   Minus,
   Plus,
   Receipt,
@@ -34,6 +35,7 @@ import {
 import { SemLoja, useApp } from "@/components/shell";
 import { Pagamento } from "./pagamento";
 import { Devolucao } from "./devolucao";
+import { AbrirAmostra } from "./amostra";
 
 type Vendedor = { id: string; nome: string };
 type Pedido = { id: number; nome: string | null; descricao: string | null };
@@ -54,6 +56,7 @@ export function Caixa() {
   const { profile, lojaId, t } = useApp();
   const [escolhido, setEscolhido] = useState<string | null>(null);
   const [devolvendo, setDevolvendo] = useState(false);
+  const [amostra, setAmostra] = useState(false);
 
   // Vendedores, produtos e estoque da loja (a tela é remontada ao trocar de loja)
   const buscarLoja = useCallback(async () => {
@@ -111,6 +114,16 @@ export function Caixa() {
                 <Undo2 size={16} className="text-gold" /> Devolução
               </button>
             )}
+            {/* amostra: chefe de loja e administração (mesma regra do banco, private.pode_lancar) */}
+            {profile.role >= 90 && (
+              <button
+                type="button"
+                onClick={() => setAmostra(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-semibold transition hover:border-ink/30 active:scale-[0.97]"
+              >
+                <FlaskConical size={16} className="text-gold" /> Abrir amostra
+              </button>
+            )}
             <Link
               href="/relatorios"
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-semibold transition hover:border-ink/30 active:scale-[0.97]"
@@ -126,6 +139,16 @@ export function Caixa() {
           onClose={() => setDevolvendo(false)}
           onFeita={() => {
             setDevolvendo(false);
+            recarregarLoja(); // estoque
+          }}
+        />
+      )}
+
+      {amostra && (
+        <AbrirAmostra
+          onClose={() => setAmostra(false)}
+          onFeita={() => {
+            setAmostra(false);
             recarregarLoja(); // estoque
           }}
         />

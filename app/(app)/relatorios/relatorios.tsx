@@ -145,7 +145,8 @@ export function Relatorios() {
       {soHoje ? (
         <p className="mb-6 rounded-xl bg-card px-4 py-3 text-sm text-muted shadow-card">
           <b className="text-ink">Hoje, {d1.split("-").reverse().join("/")}.</b> Os valores aparecem só do dia de hoje, para
-          o fechamento de caixa. Para outros dias, veja a quantidade de combos em <b className="text-ink">Combos</b>.
+          o fechamento de caixa. Para ver o que a loja toda vendeu (em quantidade, qualquer dia), use{" "}
+          <b className="text-ink">Combos</b> e <b className="text-ink">Produtos</b>.
         </p>
       ) : (
         <div className="mb-6 grid grid-cols-2 gap-3 sm:flex">
@@ -185,8 +186,10 @@ export function Relatorios() {
         ) : (
           <Combos vendas={vendas.filter((v) => !v.anulada)} devolucoes={caixa.devolucoes.filter(conta)} />
         )
+      ) : restrito ? (
+        <ProdutosEquipe de={d1} ate={ate} />
       ) : (
-        <Produtos vendas={vendas.filter((v) => !v.anulada)} restrito={restrito} />
+        <Produtos mapa={porProduto(vendas.filter((v) => !v.anulada))} restrito={false} />
       )}
 
       {aberta && (
@@ -503,10 +506,9 @@ function Combos({ vendas, devolucoes }: { vendas: Venda[]; devolucoes: Devolucao
   );
 }
 
-function Produtos({ vendas, restrito }: { vendas: Venda[]; restrito: boolean }) {
-  const { idioma } = useApp();
-  const [produto, setProduto] = useState(0);
-  const mapa = vendas
+type LinhaProduto = { nome: string; qtd: number; combos: number; valor: number };
+const porProduto = (vendas: Venda[]) =>
+  vendas
     .flatMap((v) => v.venda_itens)
     .reduce((m, i) => {
       const r = m.get(i.produto_id) ?? { nome: i.produtos.nome, qtd: 0, combos: 0, valor: 0 };
@@ -514,7 +516,43 @@ function Produtos({ vendas, restrito }: { vendas: Venda[]; restrito: boolean }) 
       r.combos += Number(i.valor_combo) * i.quantidade;
       r.valor += Number(i.preco) * i.quantidade;
       return m.set(i.produto_id, r);
-    }, new Map<number, { nome: string; qtd: number; combos: number; valor: number }>());
+    }, new Map<number, LinhaProduto>());
+
+// Vendedor e chefe: produtos vendidos pela loja toda no período (relatorio_produtos), só quantidades — sem valores em R$
+function ProdutosEquipe({ de, ate }: { de: string; ate: string }) {
+  const { lojaId } = useApp();
+  const chave = `${de}|${ate}`;
+  const buscar = useCallback(async () => {
+    const { data, error } = await supabase.rpc("relatorio_produtos", { p_loja_id: lojaId!, p_de: de, p_ate: ate });
+    if (error) toast.error("Erro ao carregar produtos", { description: error.message });
+    type L = { produto_id: number; nome: string; quantidade: number; combos: number };
+    const mapa = new Map<number, LinhaProduto>(
+      ((data ?? []) as L[]).map((l) => [
+        l.produto_id,
+        { nome: l.nome, qtd: l.quantidade, combos: Number(l.combos), valor: 0 },
+      ]),
+    );
+    return { chave: `${de}|${ate}`, mapa };
+  }, [lojaId, de, ate]);
+  const [data] = useData(buscar);
+
+  if (data?.chave !== chave)
+    return (
+      <div className="grid place-items-center py-20 text-muted">
+        <LoaderCircle className="animate-spin" />
+      </div>
+    );
+  return (
+    <>
+      <p className="mb-3 text-sm text-muted">Produtos vendidos por toda a loja no período.</p>
+      <Produtos mapa={data.mapa} restrito />
+    </>
+  );
+}
+
+function Produtos({ mapa, restrito }: { mapa: Map<number, LinhaProduto>; restrito: boolean }) {
+  const { idioma } = useApp();
+  const [produto, setProduto] = useState(0);
   const linhas = [...mapa.entries()]
     .filter(([id]) => !produto || id === produto)
     .sort((a, b) => (restrito ? b[1].qtd - a[1].qtd : b[1].valor - a[1].valor));

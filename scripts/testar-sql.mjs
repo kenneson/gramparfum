@@ -236,6 +236,19 @@ const combosDe = async (uid, de, ate) =>
 assert.deepEqual(await combosDe(VEND, hoje, hoje), { Vend: [8, 1], Chefe: [1, 1] }, "vendedor vê a equipe");
 assert.deepEqual(await combosDe(VEND, ontem, hoje), await combosDe(ADM, ontem, hoje));
 assert.deepEqual(await combosDe(VEND, ontem, ontem), {});
+// produtos vendidos: o vendedor vê os da loja toda (Vend: 1 × P1 + 3 × P2; Chefe: 1 × P2), só quantidades
+const produtosDe = async (uid, de, ate) =>
+  await as(uid, "select nome, quantidade, combos::float as combos from public.relatorio_produtos(1, $1, $2)", [de, ate]);
+assert.deepEqual(
+  await produtosDe(VEND, hoje, hoje),
+  [
+    { nome: "P2", quantidade: 4, combos: 4 },
+    { nome: "P1", quantidade: 1, combos: 5 },
+  ],
+  "vendedor vê os produtos da loja toda",
+);
+assert.deepEqual(await produtosDe(VEND, hoje, hoje), await produtosDe(ADM, hoje, hoje));
+assert.deepEqual(await produtosDe(VEND, ontem, ontem), []);
 assert.deepEqual(
   Object.keys((await as(VEND, "select * from public.relatorio_combos(1, $1, $1)", [hoje]))[0]).sort(),
   ["combos", "nome", "vendas", "vendedor_id"],

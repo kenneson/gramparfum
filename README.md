@@ -28,6 +28,9 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 
 **Faturamento só para Admin (>= 100).** Vendedor e chefe: valores só do dia de hoje (Detalhado e Fechamento do dia,
 sem escolher data); em outros períodos (Combos/Produtos) só quantidades — sem nenhum valor.
+**Privacidade** (botão em Relatórios, só admin do sistema): vendedores marcados (`privacidade`, `definir_privacidade`)
+têm nome, vendas e valores por forma retirados do Detalhado, do Fechamento do dia e do total da loja para todos abaixo
+do 200 (a própria pessoa ainda vê as dela no Detalhado). Combos, Produtos e Ranking (quantidades) não mudam.
 Na aba **Combos**, vendedor e chefe veem os combos de **todos os vendedores da loja** (`relatorio_combos`, só quantidades).
 
 ## Arquitetura

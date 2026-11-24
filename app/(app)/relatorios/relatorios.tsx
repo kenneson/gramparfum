@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useData } from "@/lib/use-data";
 import Image from "next/image";
-import { Ban, LoaderCircle, MousePointerClick, Pencil, Undo2, X } from "lucide-react";
+import { Ban, EyeOff, LoaderCircle, MousePointerClick, Pencil, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { FORMAS, dataHora, hojeISO, hora, money, num } from "@/lib/domain";
@@ -21,6 +21,7 @@ import {
   PageHeader,
   Select,
   Stat,
+  Toggle,
   Tabela,
   Tabs,
   Textarea,
@@ -97,6 +98,7 @@ export function Relatorios() {
   const [d2, setD2] = useState(hojeISO);
   const [aberta, setAberta] = useState<Venda | null>(null);
   const [editando, setEditando] = useState<Venda | null>(null);
+  const [privacidade, setPrivacidade] = useState(false);
   // Faturamento só para a Administração. Vendedor/chefe: valores só do dia de hoje (fechamento de caixa);
   // outros períodos só em quantidade de combos/produtos. A regra vale também no banco.
   const restrito = profile.role < 100;
@@ -132,16 +134,23 @@ export function Relatorios() {
       <PageHeader
         title={t.relatorios}
         actions={
-          <Tabs<Aba>
-            value={aba}
-            onChange={setAba}
-            items={[
-              { value: "detalhado", label: "Detalhado" },
-              { value: "combos", label: "Combos" },
-              { value: "produtos", label: "Produtos" },
-              { value: "fechamento", label: "Fechamento do dia" },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            {profile.role === 200 && (
+              <Button variant="outline" onClick={() => setPrivacidade(true)}>
+                <EyeOff size={16} /> Privacidade
+              </Button>
+            )}
+            <Tabs<Aba>
+              value={aba}
+              onChange={setAba}
+              items={[
+                { value: "detalhado", label: "Detalhado" },
+                { value: "combos", label: "Combos" },
+                { value: "produtos", label: "Produtos" },
+                { value: "fechamento", label: "Fechamento do dia" },
+              ]}
+            />
+          </div>
         }
       />
       {soHoje ? (
@@ -203,6 +212,16 @@ export function Relatorios() {
           onEditar={() => {
             setEditando(aberta);
             setAberta(null);
+          }}
+        />
+      )}
+      {privacidade && (
+        <Privacidade
+          lojaId={lojaId}
+          onClose={() => setPrivacidade(false)}
+          onSaved={() => {
+            setPrivacidade(false);
+            carregar();
           }}
         />
       )}
@@ -1269,5 +1288,83 @@ function Fechamento({
         />
       )}
     </div>
+  );
+}
+
+// Privacidade (só admin do sistema): vendedores marcados saem do Detalhado, do Fechamento e dos totais da loja
+// para todos abaixo do admin do sistema (relatorio_vendas/relatorio_caixa). Combos, Produtos e Ranking não mudam.
+function Privacidade({ lojaId, onClose, onSaved }: { lojaId: number; onClose: () => void; onSaved: () => void }) {
+  const [membros, setMembros] = useState<{ id: string; nome: string }[] | null>(null);
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from("loja_membros").select("profiles!inner(id, nome)").eq("loja_id", lojaId).eq("ativo", true),
+      supabase.from("privacidade").select("user_id").eq("loja_id", lojaId),
+    ]).then(([m, p]) => {
+      if (m.error || p.error) toast.error("Erro ao carregar", { description: (m.error ?? p.error)!.message });
+      setMembros(
+        ((m.data ?? []) as unknown as { profiles: { id: string; nome: string } }[])
+          .map((x) => x.profiles)
+          .sort((a, b) => a.nome.localeCompare(b.nome)),
+      );
+      setMarcados(new Set((p.data ?? []).map((x) => x.user_id as string)));
+    });
+  }, [lojaId]);
+
+  async function salvar() {
+    setSalvando(true);
+    const { error } = await supabase.rpc("definir_privacidade", { p_loja_id: lojaId, p_user_ids: [...marcados] });
+    setSalvando(false);
+    if (error) return toast.error("Não salvo", { description: error.message });
+    toast.success("Privacidade salva");
+    onSaved();
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Privacidade">
+      <div className="flex flex-col gap-5">
+        <p className="text-sm text-muted">
+          Quem estiver marcado tem o nome, as vendas e os valores (dinheiro, cartão, Pix…) retirados do Detalhado, do
+          Fechamento do dia e do total da loja, para todos menos o administrador do sistema. As quantidades (Combos,
+          Produtos e Ranking) não mudam.
+        </p>
+        {!membros ? (
+          <div className="grid place-items-center py-6 text-muted">
+            <LoaderCircle className="animate-spin" />
+          </div>
+        ) : membros.length === 0 ? (
+          <Empty>Ninguém nesta loja.</Empty>
+        ) : (
+          <Card className="divide-y divide-line">
+            {membros.map((m) => (
+              <div key={m.id} className="px-4 py-3">
+                <Toggle
+                  label={m.nome}
+                  checked={marcados.has(m.id)}
+                  onChange={(v) =>
+                    setMarcados((s) => {
+                      const n = new Set(s);
+                      if (v) n.add(m.id);
+                      else n.delete(m.id);
+                      return n;
+                    })
+                  }
+                />
+              </div>
+            ))}
+          </Card>
+        )}
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button variant="gold" disabled={!membros || salvando} onClick={salvar}>
+            Salvar
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

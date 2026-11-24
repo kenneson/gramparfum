@@ -232,6 +232,26 @@ assert.equal((await fech(VEND, hoje, hoje)).length, 2, "vendedor: fechamento de 
 assert.ok((await fech(VEND, hoje, hoje)).every((v) => v.total !== null), "com valores");
 assert.equal((await fech(VEND, ontem, hoje)).length, 1, "vendedor: vários dias continua só as próprias");
 assert.equal((await fech(VEND, ontem, hoje))[0].total, null, "e sem valores");
+// privacidade: só o admin do sistema (200) marca; vendas do privativo somem abaixo do 200
+await db.exec(`
+  set session_replication_role = replica;
+  insert into auth.users values ('00000000-0000-0000-0000-000000000200');
+  insert into public.profiles (id, nome, usuario, role) values ('00000000-0000-0000-0000-000000000200', 'Sis', 'sis', 200);
+  set session_replication_role = origin;
+`);
+const SIS = "00000000-0000-0000-0000-000000000200";
+await fails(as(ADM, "select public.definir_privacidade(1, $1)", [[CHEFE]]), /administrador do sistema/);
+await fails(as(SIS, "select public.definir_privacidade(1, $1)", [[SIS]]), /não é da loja/);
+await as(SIS, "select public.definir_privacidade(1, $1)", [[CHEFE]]);
+assert.equal((await as(VEND, "select * from public.privacidade")).length, 0, "vendedor não sabe quem é privativo");
+assert.equal((await as(SIS, "select * from public.privacidade")).length, 1);
+assert.equal((await fech(VEND, hoje, hoje)).length, 1, "fechamento sem a venda do privativo");
+assert.equal((await rel(ADM, hoje, hoje)).length, 1, "admin de lojas também não vê");
+assert.equal((await rel(CHEFE, hoje, hoje)).length, 2, "o próprio privativo vê as dele no Detalhado");
+assert.equal((await fech(CHEFE, hoje, hoje)).length, 1, "mas não no fechamento da loja");
+assert.equal((await rel(SIS, hoje, hoje)).length, 2, "admin do sistema vê tudo");
+await as(SIS, "select public.definir_privacidade(1, $1)", [[]]);
+assert.equal((await fech(VEND, hoje, hoje)).length, 2, "desmarcado: volta");
 // combos: o vendedor vê os de toda a equipe (só quantidades); venda do Vend = 1 × P1 + 3 × P2 = 8 combos
 const combosDe = async (uid, de, ate) =>
   Object.fromEntries(

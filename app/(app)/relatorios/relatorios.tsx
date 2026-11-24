@@ -105,20 +105,22 @@ export function Relatorios() {
   const d1 = soHoje ? hojeISO() : d1Escolhido;
   const ate = umDia ? d1 : d2;
 
-  const chave = `${d1}|${ate}`;
+  // Fechamento do dia: vendedor também fecha o caixa quando o chefe não está, então vê a loja toda (só hoje)
+  const lojaToda = aba === "fechamento";
+  const chave = `${d1}|${ate}|${lojaToda}`;
   const buscar = useCallback(async () => {
     if (!lojaId) return null;
     // ponytail: agrega no cliente; agregar no SQL se o volume por período passar de alguns milhares
-    const p = { p_loja_id: lojaId, p_de: d1, p_ate: ate };
+    const p = { p_loja_id: lojaId, p_de: d1, p_ate: ate, p_loja_toda: lojaToda };
     const [v, c] = await Promise.all([supabase.rpc("relatorio_vendas", p), supabase.rpc("relatorio_caixa", p)]);
     if (v.error || c.error)
       toast.error("Erro ao carregar vendas", { description: (v.error ?? c.error)!.message });
     return {
-      chave: `${d1}|${ate}`,
+      chave: `${d1}|${ate}|${lojaToda}`,
       vendas: (v.data ?? []) as Venda[],
       caixa: (c.data ?? { devolucoes: [], recuperacoes: [] }) as Caixa,
     };
-  }, [lojaId, d1, ate]);
+  }, [lojaId, d1, ate, lojaToda]);
   const [data, carregar] = useData(buscar);
   const vendas = data?.chave === chave ? data.vendas : null; // null = carregando o período atual
   const caixa = data?.caixa ?? { devolucoes: [], recuperacoes: [] };
@@ -951,6 +953,7 @@ function EditarVenda({ venda, onClose, onSaved }: { venda: Venda; onClose: () =>
 
 // Fechamento do dia: caixa (vendas − devoluções + recuperados) e estoque (entradas e saídas), para conferir no fim do dia.
 // Um dia só: vendedor/chefe veem os valores só de hoje (relatorio_vendas/relatorio_caixa liberam só hoje).
+// Vendedor também fecha o caixa quando o chefe não está: aqui vê a loja toda (p_loja_toda), não só as próprias.
 function Fechamento({
   vendas,
   caixa,
@@ -1019,7 +1022,7 @@ function Fechamento({
     <div className="grid items-start gap-6 xl:grid-cols-2">
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-2xl font-bold">{profile.role === 50 ? "Suas vendas" : "Caixa"}</h2>
+          <h2 className="font-display text-2xl font-bold">Caixa da loja</h2>
           <Exportar
             arquivo={`fechamento-caixa-${dia}`}
             titulo={`Fechamento de caixa — ${loja}`}

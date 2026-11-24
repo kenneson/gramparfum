@@ -225,6 +225,13 @@ await as(
 );
 assert.equal((await rel(VEND, hoje, hoje)).length, 1);
 assert.equal((await rel(CHEFE, hoje, hoje)).length, 2);
+// fechamento do dia: vendedor vê a loja toda, com valores, só hoje
+const fech = async (uid, de, ate) =>
+  (await as(uid, "select public.relatorio_vendas(1, $1, $2, true) r", [de, ate]))[0].r;
+assert.equal((await fech(VEND, hoje, hoje)).length, 2, "vendedor: fechamento de hoje com a loja toda");
+assert.ok((await fech(VEND, hoje, hoje)).every((v) => v.total !== null), "com valores");
+assert.equal((await fech(VEND, ontem, hoje)).length, 1, "vendedor: vários dias continua só as próprias");
+assert.equal((await fech(VEND, ontem, hoje))[0].total, null, "e sem valores");
 // combos: o vendedor vê os de toda a equipe (só quantidades); venda do Vend = 1 × P1 + 3 × P2 = 8 combos
 const combosDe = async (uid, de, ate) =>
   Object.fromEntries(
@@ -490,6 +497,12 @@ const [recChefe] = (await caixa(CHEFE)).recuperacoes;
 assert.equal(recChefe.valor, 60, "chefe vê o valor que entrou no caixa");
 assert.equal(recChefe.pessoa, null, "mas não de quem");
 assert.deepEqual((await caixa(VEND)).recuperacoes, [], "vendedor não vê recuperados");
+const caixaLoja = async (uid, de = hoje, ate = hoje) =>
+  (await as(uid, "select public.relatorio_caixa(1, $1, $2, true) r", [de, ate]))[0].r;
+const [recVend] = (await caixaLoja(VEND)).recuperacoes;
+assert.equal(recVend.valor, 60, "vendedor no fechamento: vê o valor que entrou no caixa");
+assert.equal(recVend.pessoa, null, "mas não de quem");
+assert.deepEqual((await caixaLoja(VEND, ontem, hoje)).recuperacoes, [], "vendedor: só hoje");
 assert.deepEqual((await caixa(CHEFE, ontem, hoje)).recuperacoes, [], "chefe: só hoje");
 
 // validação de texto no banco (mesma regra do app)

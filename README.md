@@ -21,7 +21,7 @@ Testes: `node --test lib/pagamento.test.ts` (regra de pagamento) e `node scripts
 
 | role | perfil | acesso |
 |---|---|---|
-| 50 | Vendedor | Caixa (só as próprias vendas) e **devolução** no Caixa, valores só do dia de hoje (fechamento de caixa), anular venda com usuário e senha do chefe, Ranking, Inventário → **só contagem**: vê a contagem anterior, a diferença ainda pendente de cada produto e, ao digitar, se bateu ou quanto faltou/sobrou (e corrige a própria, com justificativa) |
+| 50 | Vendedor | Caixa (só as próprias vendas) e **devolução** no Caixa, valores só do dia de hoje, **Fechamento do dia com a loja toda** (só hoje: fecha o caixa quando o chefe não está), anular venda com usuário e senha do chefe, Ranking, Inventário → **só contagem**: vê a contagem anterior, a diferença ainda pendente de cada produto e, ao digitar, se bateu ou quanto faltou/sobrou (e corrige a própria, com justificativa) |
 | 90 | Chefe de loja | + Gestão de equipe (**só cadastra vendedores**, que entram na loja dele; não edita pessoas nem escolhe lojas), valores só de hoje, editar/anular venda, trocar vendedor (venda paga e pedido não pago, só ativos), Inventário → **compra, amostra e contagem**. **Não faz devolução** |
 | 100 | Admin. geral de lojas | + tudo das lojas dele: faturamento de qualquer período, doação/estragou, estoque, **Recuperados**, metas (da loja e individuais), produtos, perfis, **remover** (tirar pessoa da loja/empresa, desfazer lançamento de outros, devolução e recuperação), Histórico e auditoria |
 | 200 | Admin. do sistema | tudo, todas as lojas, cria lojas |

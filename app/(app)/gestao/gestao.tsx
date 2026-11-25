@@ -86,6 +86,7 @@ function Equipe() {
       .from("profiles")
       .select("*, loja_membros(loja_id, ativo)")
       .eq("ativo", ativos === "1")
+      .not("usuario", "like", "excluido-%") // excluídos com histórico: só ficam nas vendas antigas
       .order("nome");
     if (profile.role < 200) {
       const { data: m } = await supabase
@@ -431,14 +432,14 @@ function EditarPessoa({
           {profile.role === 200 && (
             <Secao titulo="Excluir usuário">
               <p className="mb-3 text-sm text-muted">
-                Apaga a pessoa e o login de vez. Só é possível para quem não tem vendas, lançamentos ou outro
-                histórico; nesse caso, use &quot;Fora da empresa&quot;.
+                Tira a pessoa do sistema e libera o usuário <b>@{p.usuario}</b> para cadastrar outra pessoa. Se ela
+                tem vendas ou lançamentos, o nome continua nesses registros antigos para os relatórios não mudarem.
               </p>
               <Button
                 variant="danger"
                 disabled={pending}
                 onClick={() =>
-                  confirm(`Excluir ${p.nome} (@${p.usuario}) de vez? Não dá para desfazer.`) &&
+                  confirm(`Excluir ${p.nome} (@${p.usuario})? Não dá para desfazer.`) &&
                   excluir(async () => {
                     const r = await excluirPessoa(p.id);
                     if (r.error) toast.error(r.error);

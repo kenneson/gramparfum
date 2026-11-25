@@ -16,6 +16,7 @@ type Res = { error?: string };
 const BAN = "876000h"; // ~100 anos
 const USUARIO_RE = /^[a-z0-9._-]{3,32}$/;
 const IDIOMAS: Idioma[] = ["pt", "es"];
+const EXCLUIDO = "excluido-"; // usuário de quem foi excluído com histórico (libera o original)
 
 // Nome obrigatório, comentário opcional (mesma regra do banco); lança com a mensagem do primeiro erro
 function dadosPessoais(input: {
@@ -134,7 +135,7 @@ export async function criarPessoa(input: {
     if (ator.role < 90 || !(await acessaLoja(input.lojaId)))
       throw new Error("Sem permissão");
     const usuario = normalizarUsuario(input.usuario);
-    if (!USUARIO_RE.test(usuario))
+    if (!USUARIO_RE.test(usuario) || usuario.startsWith(EXCLUIDO))
       throw new Error(
         "Usuário: 3 a 32 caracteres (letras minúsculas, números, . _ -)",
       );
@@ -208,7 +209,7 @@ export async function atualizarAcesso(
   return run(async () => {
     const { ator, alvo } = await autorizar(id, { permitirSiMesmo: true });
     const usuario = normalizarUsuario(input.usuario);
-    if (!USUARIO_RE.test(usuario))
+    if (!USUARIO_RE.test(usuario) || usuario.startsWith(EXCLUIDO))
       throw new Error(
         "Usuário: 3 a 32 caracteres (letras minúsculas, números, . _ -)",
       );
@@ -340,29 +341,52 @@ async function historicoDe(id: string) {
   return [...new Set(achados.filter((n): n is string => !!n))];
 }
 
-// Excluir de vez: só o admin do sistema, nunca a si mesmo, e só quem não tem histórico.
-// Carrinhos abertos (pedidos não pagos) da pessoa somem junto; os que ela abriu para outros ficam, sem autor.
+// Excluir (só o admin do sistema, nunca a si mesmo). O usuário (login) sempre fica livre para outra pessoa.
+// Sem histórico: apaga de vez (perfil, lojas, metas, acessos e carrinhos abertos vão junto).
+// Com histórico (vendas, estoque, caixa...): apagar mudaria os relatórios do passado, então a pessoa é arquivada:
+// o nome continua nas vendas antigas, mas sai das lojas, perde o acesso e o usuário vira "excluido-…".
 export async function excluirPessoa(id: string): Promise<Res> {
   return run(async () => {
     const { ator, alvo } = await autorizar(id);
     if (ator.role !== 200) throw new Error("Só o administrador do sistema exclui usuários");
     if (alvo.id === ator.id) throw new Error("Você não pode excluir o seu próprio usuário");
-    const hist = await historicoDe(id);
-    if (hist.length)
-      throw new Error(
-        `${alvo.nome} tem ${hist.join(", ")}. Excluir apagaria esse histórico: use "Fora da empresa" para tirar a pessoa do sistema.`,
-      );
 
     const admin = createAdminClient();
     const loja = [...(await lojasDe(id))][0];
+    const hist = await historicoDe(id);
     check(await admin.from("pedidos").delete().eq("vendedor_id", id));
     check(await admin.from("pedidos").update({ created_by: null }).eq("created_by", id));
-    // apaga o login; perfil, lojas, metas e acessos vão junto (on delete cascade)
-    const { error } = await admin.auth.admin.deleteUser(id);
-    if (error)
-      throw new Error(
-        `Não foi possível excluir ${alvo.nome}: ${error.message}. Se a pessoa tem histórico, use "Fora da empresa".`,
-      );
-    await registrar(ator.id, ator.id, `${ator.nome} excluiu o usuário ${alvo.nome} (@${alvo.usuario})`, loja);
+
+    if (!hist.length) {
+      const { error } = await admin.auth.admin.deleteUser(id);
+      if (!error) {
+        await registrar(ator.id, ator.id, `${ator.nome} excluiu o usuário ${alvo.nome} (@${alvo.usuario})`, loja);
+        return;
+      }
+      // algo foi lançado no meio do caminho: arquiva como quem tem histórico
+    }
+
+    const livre = `${EXCLUIDO}${id.replaceAll("-", "").slice(0, 12)}`;
+    const { error } = await admin.auth.admin.updateUserById(id, {
+      email: usuarioToEmail(livre),
+      email_confirm: true,
+      password: randomBytes(24).toString("base64url"),
+      ban_duration: BAN,
+    });
+    if (error) throw new Error(error.message);
+    check(
+      await admin
+        .from("profiles")
+        .update({ usuario: livre, ativo: false, acesso_habilitado: false })
+        .eq("id", id),
+    );
+    check(await admin.from("loja_membros").update({ ativo: false }).eq("user_id", id));
+    await admin.from("senhas_legado").delete().eq("user_id", id); // a senha do sistema antigo não entra mais
+    await registrar(
+      ator.id,
+      ator.id,
+      `${ator.nome} excluiu o usuário ${alvo.nome} (@${alvo.usuario}); como tem ${hist.join(", ") || "histórico"}, o nome fica nas vendas antigas e o usuário @${alvo.usuario} está livre`,
+      loja,
+    );
   });
 }

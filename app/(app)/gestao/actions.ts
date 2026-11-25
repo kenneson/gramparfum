@@ -310,3 +310,59 @@ export async function definirAtivo(id: string, ativo: boolean): Promise<Res> {
     );
   });
 }
+
+// Onde a pessoa aparece como autora de algo que precisa ficar no histórico (vendas, estoque, caixa, eventos).
+// Com qualquer registro, excluir apagaria o histórico: aí a pessoa vai para "Fora da empresa".
+const HISTORICO: [tabela: string, colunas: string[], nome: string][] = [
+  ["vendas", ["vendedor_id", "created_by", "anulada_por"], "vendas"],
+  ["estoque_movimentos", ["created_by", "editado_por"], "lançamentos de estoque"],
+  ["devolucoes", ["created_by", "desfeita_por"], "devoluções"],
+  ["recuperacoes", ["created_by", "desfeita_por", "responsavel_id"], "recuperados"],
+  ["eventos", ["user_id"], "registros no histórico"],
+  ["produtos", ["created_by"], "produtos cadastrados"],
+  ["metas", ["updated_by"], "metas definidas"],
+  ["metas_loja", ["updated_by"], "metas definidas"],
+  ["privacidade", ["created_by"], "ajustes de privacidade"],
+];
+
+async function historicoDe(id: string) {
+  const admin = createAdminClient();
+  const achados = await Promise.all(
+    HISTORICO.map(async ([tabela, colunas, nome]) => {
+      const { count, error } = await admin
+        .from(tabela)
+        .select("*", { count: "exact", head: true })
+        .or(colunas.map((c) => `${c}.eq.${id}`).join(","));
+      if (error) throw new Error(error.message);
+      return count ? nome : null;
+    }),
+  );
+  return [...new Set(achados.filter((n): n is string => !!n))];
+}
+
+// Excluir de vez: só o admin do sistema, nunca a si mesmo, e só quem não tem histórico.
+// Carrinhos abertos (pedidos não pagos) da pessoa somem junto; os que ela abriu para outros ficam, sem autor.
+export async function excluirPessoa(id: string): Promise<Res> {
+  return run(async () => {
+    const { ator, alvo } = await autorizar(id);
+    if (ator.role !== 200) throw new Error("Só o administrador do sistema exclui usuários");
+    if (alvo.id === ator.id) throw new Error("Você não pode excluir o seu próprio usuário");
+    const hist = await historicoDe(id);
+    if (hist.length)
+      throw new Error(
+        `${alvo.nome} tem ${hist.join(", ")}. Excluir apagaria esse histórico: use "Fora da empresa" para tirar a pessoa do sistema.`,
+      );
+
+    const admin = createAdminClient();
+    const loja = [...(await lojasDe(id))][0];
+    check(await admin.from("pedidos").delete().eq("vendedor_id", id));
+    check(await admin.from("pedidos").update({ created_by: null }).eq("created_by", id));
+    // apaga o login; perfil, lojas, metas e acessos vão junto (on delete cascade)
+    const { error } = await admin.auth.admin.deleteUser(id);
+    if (error)
+      throw new Error(
+        `Não foi possível excluir ${alvo.nome}: ${error.message}. Se a pessoa tem histórico, use "Fora da empresa".`,
+      );
+    await registrar(ator.id, ator.id, `${ator.nome} excluiu o usuário ${alvo.nome} (@${alvo.usuario})`, loja);
+  });
+}

@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound, Pencil, Plus, Store } from "lucide-react";
+import { KeyRound, Pencil, Plus, Store, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useData } from "@/lib/use-data";
@@ -40,6 +40,7 @@ import {
   criarPessoa,
   definirAtivo,
   definirLoja,
+  excluirPessoa,
 } from "./actions";
 
 type Aba = "equipe" | "produtos" | "lojas";
@@ -176,7 +177,14 @@ function Equipe() {
       >
         {sel &&
           (profile.role >= 100 || sel.id === profile.id ? (
-            <EditarPessoa p={sel} onChange={carregar} />
+            <EditarPessoa
+              p={sel}
+              onChange={carregar}
+              onExcluida={() => {
+                setAberta(null);
+                carregar();
+              }}
+            />
           ) : (
             <VerPessoa p={sel} />
           ))}
@@ -245,9 +253,19 @@ function VerPessoa({ p }: { p: Pessoa }) {
   );
 }
 
-function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
+function EditarPessoa({
+  p,
+  onChange,
+  onExcluida,
+}: {
+  p: Pessoa;
+  onChange: () => void;
+  onExcluida: () => void;
+}) {
   const { profile, lojas } = useApp();
-  const [pending, exec] = useAcao(onChange);
+  const [pendingAcao, exec] = useAcao(onChange);
+  const [excluindo, excluir] = useTransition();
+  const pending = pendingAcao || excluindo;
   const [dados, setDados] = useState({
     nome: p.nome,
     descricao: p.descricao ?? "",
@@ -409,6 +427,32 @@ function EditarPessoa({ p, onChange }: { p: Pessoa; onChange: () => void }) {
               </p>
             )}
           </Secao>
+
+          {profile.role === 200 && (
+            <Secao titulo="Excluir usuário">
+              <p className="mb-3 text-sm text-muted">
+                Apaga a pessoa e o login de vez. Só é possível para quem não tem vendas, lançamentos ou outro
+                histórico; nesse caso, use &quot;Fora da empresa&quot;.
+              </p>
+              <Button
+                variant="danger"
+                disabled={pending}
+                onClick={() =>
+                  confirm(`Excluir ${p.nome} (@${p.usuario}) de vez? Não dá para desfazer.`) &&
+                  excluir(async () => {
+                    const r = await excluirPessoa(p.id);
+                    if (r.error) toast.error(r.error);
+                    else {
+                      toast.success(`${p.nome} excluído(a)`);
+                      onExcluida();
+                    }
+                  })
+                }
+              >
+                <Trash2 size={16} /> Excluir usuário
+              </Button>
+            </Secao>
+          )}
         </>
       )}
     </div>

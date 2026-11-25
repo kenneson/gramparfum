@@ -525,6 +525,23 @@ assert.equal(recVend.pessoa, null, "mas não de quem");
 assert.deepEqual((await caixaLoja(VEND, ontem, hoje)).recuperacoes, [], "vendedor: só hoje");
 assert.deepEqual((await caixa(CHEFE, ontem, hoje)).recuperacoes, [], "chefe: só hoje");
 
+// excluir usuário (Gestão, admin do sistema): sem histórico, login e perfil somem em cascata; com vendas o banco barra
+{
+  const NOVO = "00000000-0000-0000-0000-000000000051";
+  await db.exec(`
+    set session_replication_role = replica;
+    insert into auth.users values ('${NOVO}');
+    insert into public.profiles (id, nome, usuario, role) values ('${NOVO}', 'Novo', 'novo', 50);
+    set session_replication_role = origin;
+    insert into public.loja_membros (loja_id, user_id) values (1, '${NOVO}');
+    insert into public.pedidos (loja_id, vendedor_id) values (1, '${NOVO}');
+  `);
+  await db.exec(`delete from public.pedidos where vendedor_id = '${NOVO}'; delete from auth.users where id = '${NOVO}'`);
+  assert.equal((await db.query(`select 1 from public.profiles where id = '${NOVO}'`)).rows.length, 0, "perfil excluído");
+  assert.equal((await db.query(`select 1 from public.loja_membros where user_id = '${NOVO}'`)).rows.length, 0);
+  await fails(db.query(`delete from auth.users where id = '${VEND}'`), /foreign key/, "com vendas não exclui");
+}
+
 // validação de texto no banco (mesma regra do app)
 await fails(as(ADM, "insert into public.produtos (loja_id, nome, preco) values (1, '  ab  ', 10)"), /Nome: escreva ao menos 3 letras/);
 await fails(as(ADM, "insert into public.produtos (loja_id, nome, preco) values (1, '   ', 10)"), /Nome: campo obrigatório/);
